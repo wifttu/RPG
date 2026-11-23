@@ -67,6 +67,12 @@ export const BALANCE = {
     /** 보스에게 지면, 전투력이 이 배율만큼 오른 뒤에 자동 도전 재개 */
     retryPowerGain: 1.15,
   },
+  /** 보너스 상자: 잡몹을 이만큼 잡으면 상자 하나 (보스 도전과는 별개) */
+  bonus: {
+    kills: 40,
+    /** 상자 골드 = 지금 스테이지 잡몹 골드 × 이 값 */
+    goldKills: 8,
+  },
   fame: {
     /**
      * 은퇴 시 명성 = floor(coef × growth^(최고 스테이지 − offset)).

@@ -46,12 +46,13 @@ const STEPS: Step[] = [
   },
   {
     id: 'boss',
-    when: (g) => g.sim.gaugeFull || g.state.hero.maxStage >= 2,
+    when: (g) => g.sim.autoReady || g.state.hero.maxStage >= 2,
     target: '.boss-ctl',
     title: '보스 도전',
     text: () =>
-      `잡몹을 ${BALANCE.monster.perStage}마리 잡으면 <b>보스 도전</b>을 할 수 있어요. 제한 시간 안에 보스를 쓰러뜨리면 다음 스테이지로!<br>` +
-      '<b>자동 도전</b>을 끄면 보스에 도전하지 않고 잡몹만 계속 잡아요 (골드 모으기). 10스테이지마다 강한 <b>지역 보스</b>가 나와요.',
+      '<b>BOSS</b> 버튼을 누르면 언제든 보스가 나와요. 제한 시간 안에 쓰러뜨리면 다음 스테이지로!<br>' +
+      `<b>자동 도전</b>을 켜 두면 잡몹 ${BALANCE.monster.perStage}마리 뒤 알아서 도전하고, 끄면 잡몹만 계속 잡아요 (골드 모으기).<br>` +
+      `잡몹을 ${BALANCE.bonus.kills}마리 잡을 때마다 아래 게이지가 차서 <b>보너스 골드 상자</b>가 열려요. 10스테이지마다 강한 <b>지역 보스</b>!`,
     button: '확인',
   },
   {

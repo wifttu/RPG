@@ -41,8 +41,8 @@ export type BattleEvent =
   | { type: 'respawn' }
   /** 직업 스킬 */
   | { type: 'skill'; kind: WeaponKind; hits: { damage: number; crit: boolean }[]; killed: boolean }
-  /** 게이지가 가득 차서 보스에 도전할 수 있다 */
-  | { type: 'bossReady'; stage: number }
+  /** 보너스 게이지가 차서 상자를 열었다 */
+  | { type: 'bonusChest'; gold: number }
   /** 보스 도전 시작 */
   | { type: 'bossStart'; stage: number; rank: Rank }
   /** 보스 도전 실패 → 같은 스테이지에서 계속 사냥 */
@@ -69,11 +69,12 @@ export const BIOME_BOSS: MonsterKind[] = ['golem', 'golem', 'golem', 'yeti', 'dr
  * 전투 시뮬레이션. 화면(Phaser)과 분리되어 있어서 테스트·오프라인 계산·서버 검증에 그대로 쓸 수 있다.
  * 화면은 tick()이 돌려주는 이벤트를 받아서 연출만 한다.
  *
- * 진행 방식
- * - 스테이지마다 잡몹을 잡으면 처치 게이지가 찬다 (5마리).
- * - 게이지가 차면 보스 도전 가능: 자동 도전이 켜져 있으면 바로, 꺼져 있으면 challenge() 를 부를 때까지 잡몹 사냥을 계속한다.
+ * 진행 방식 (방치형 표준: 잡몹은 끝없이 나오고, 보스는 버튼으로 부른다)
+ * - '보스 도전'(challenge)은 언제든 누를 수 있다. 누르면 싸우던 잡몹 대신 바로 보스가 나온다.
+ * - 자동 도전이 켜져 있으면 그 스테이지에서 잡몹을 5마리 잡은 뒤 스스로 보스를 부른다.
  * - 보스(매 스테이지 정예, 10스테이지마다 지역 보스)를 제한 시간 안에 잡으면 다음 스테이지.
- * - 지면 스테이지는 그대로, 게이지도 가득 찬 채로 잡몹 사냥을 계속한다. 자동 도전은 전투력이 1.15배 오른 뒤 다시 시도.
+ * - 지면 스테이지는 그대로 잡몹 사냥을 계속한다. 자동 도전은 전투력이 1.15배 오른 뒤 다시 시도.
+ * - 이와 별개로 잡몹을 잡을 때마다 보너스 게이지가 차고, 가득 차면 골드 상자가 열린다.
  * - 잡몹에게 쓰러지면(너무 강한 곳) 한 스테이지 아래로.
  */
 export class BattleSim {
@@ -118,14 +119,24 @@ export class BattleSim {
     return this.time < this.injuredUntil && !this.dead;
   }
 
-  /** 처치 게이지 칸 수 */
-  get gaugeMax(): number {
+  /** 자동 도전 전에 이 스테이지에서 잡을 잡몹 수 */
+  get autoAfter(): number {
     return monstersInStage(this.state.stage, houseBest(this.state));
   }
 
-  /** 게이지가 가득 찼는지 */
-  get gaugeFull(): boolean {
-    return this.killsInStage >= this.gaugeMax;
+  /** 자동 도전 준비가 됐는지 (이 스테이지에서 잡몹을 충분히 잡았는지) */
+  get autoReady(): boolean {
+    return this.killsInStage >= this.autoAfter;
+  }
+
+  /** 보너스 상자 게이지 0~1 */
+  get bonusProgress(): number {
+    return Math.min(1, this.state.bonusKills / BALANCE.bonus.kills);
+  }
+
+  /** 보스 도전 버튼을 누를 수 있는지 */
+  get canChallenge(): boolean {
+    return !this.bossActive && !this.dead;
   }
 
   /** 지금 보스와 싸우는 중인지 (또는 곧 나오는지) */
@@ -143,9 +154,9 @@ export class BattleSim {
     return this.stats.atk * this.stats.atkPerSec * this.stats.maxHp;
   }
 
-  /** '보스 도전' 버튼. 게이지가 가득 차야 한다. 싸우던 잡몹 대신 바로 보스가 나온다. */
+  /** '보스 도전' 버튼. 언제든 누를 수 있다. 싸우던 잡몹 대신 바로 보스가 나온다. */
   challenge(): boolean {
-    if (!this.gaugeFull || this.bossActive || this.dead) return false;
+    if (!this.canChallenge) return false;
     this.retryPower = 0;
     this.bossQueued = true;
     if (this.monster && !this.monster.boss) {
@@ -184,8 +195,8 @@ export class BattleSim {
     }
 
     if (!this.monster) {
-      // 게이지가 찼는데 아직 보스를 안 불렀다면 자동 도전 확인
-      if (!this.bossQueued && this.gaugeFull && this.autoChallengeOk()) {
+      // 이 스테이지에서 잡몹을 충분히 잡았으면 자동 도전 확인
+      if (!this.bossQueued && this.autoReady && this.autoChallengeOk()) {
         this.bossQueued = true;
         this.retryPower = 0;
       }
@@ -293,18 +304,23 @@ export class BattleSim {
       this.setStage(this.state.stage + 1, ev, 'clear');
       return;
     }
-    const wasFull = this.gaugeFull;
-    this.killsInStage = Math.min(this.gaugeMax, this.killsInStage + 1);
-    if (this.gaugeFull && isMarchStage(this.state.stage, best)) {
+    // 보너스 상자 게이지
+    this.state.bonusKills++;
+    if (this.state.bonusKills >= BALANCE.bonus.kills) {
+      this.state.bonusKills = 0;
+      const chest = monsterGold(this.state.stage) * BALANCE.bonus.goldKills * this.stats.goldMul;
+      this.state.gold += chest;
+      ev.push({ type: 'bonusChest', gold: chest });
+    }
+    this.killsInStage = Math.min(this.autoAfter, this.killsInStage + 1);
+    if (this.autoReady && isMarchStage(this.state.stage, best)) {
       // 정복한 땅: 스테이지 보스 없이 바로 다음으로
       this.heroHp = this.stats.maxHp;
       this.setStage(this.state.stage + 1, ev, 'clear');
-      return;
     }
-    if (this.gaugeFull && !wasFull) ev.push({ type: 'bossReady', stage: this.state.stage });
   }
 
-  /** 보스에게 짐: 스테이지는 그대로, 게이지도 가득 찬 채로 사냥을 계속한다 */
+  /** 보스에게 짐: 스테이지는 그대로 사냥을 계속한다 */
   private bossFailed(ev: BattleEvent[], reason: 'death' | 'timeout'): void {
     this.monster = null;
     this.bossQueued = false;

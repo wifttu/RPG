@@ -2,7 +2,7 @@ import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
-import { bossTimeLimit, houseBest, isBossStage, isMarchStage, monstersInStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
+import { bossTimeLimit, houseBest, isBossStage, isMarchStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
 import type { Game } from '../core/game';
 import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
@@ -97,7 +97,7 @@ export class UI {
           this.toast(
             this.core.state.autoBoss
               ? `${e.reason === 'timeout' ? '시간 초과!' : '쓰러졌어요!'} 잡몹을 잡으며 골드를 모아요 — 수련으로 강해지면 자동으로 다시 도전해요`
-              : `${e.reason === 'timeout' ? '시간 초과!' : '쓰러졌어요!'} 준비되면 '보스 도전'을 눌러 주세요`,
+              : `${e.reason === 'timeout' ? '시간 초과!' : '쓰러졌어요!'} 준비되면 BOSS 버튼을 눌러 주세요`,
             3200,
           );
           track('boss_fail', { stage: e.stage, reason: e.reason, gen: this.core.state.hero.generation });
@@ -120,7 +120,11 @@ export class UI {
       e.stopPropagation();
       audio.play('click');
       this.core.setAutoBoss(!this.core.state.autoBoss);
-      this.toast(this.core.state.autoBoss ? '자동 도전: 게이지가 차면 바로 보스에 도전해요' : '자동 도전 끔: 잡몹만 계속 잡아요 (보스 도전은 버튼으로)');
+      this.toast(
+        this.core.state.autoBoss
+          ? `자동 도전: 잡몹 ${BALANCE.monster.perStage}마리 뒤 알아서 보스에 도전해요`
+          : '자동 도전 끔: 잡몹만 계속 잡아요 (보스는 BOSS 버튼으로)',
+      );
     });
     this.tutorial = new Tutorial(this.core, {
       modalOpen: () => this.modalOpen,
@@ -179,13 +183,13 @@ export class UI {
 
     $('#battle-overlay').innerHTML = `
       <div>
-        <div class="stage-chip" data-b="stage"></div>
-        <div class="pips" data-b="pips"></div>
-        <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
         <div class="boss-ctl">
-          <button class="boss-btn" data-boss hidden>보스 도전 ▶</button>
-          <button class="auto-chip" data-auto></button>
+          <div class="stage-chip" data-b="stage"></div>
+          <button class="boss-btn" data-boss>BOSS</button>
         </div>
+        <div class="bonus-bar" data-b="bonus" title="잡몹을 잡으면 차는 보너스 상자 게이지"><i><b data-b="bonusFill"></b></i><span>?</span></div>
+        <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
+        <button class="auto-chip" data-auto></button>
         <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
         <div class="status-chips">
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
@@ -242,22 +246,15 @@ export class UI {
         : `스테이지 ${state.stage}${regionStage ? ' <span class="boss">★</span>' : ''}`;
     const chip = $('[data-b="stage"]');
     if (chip.innerHTML !== stageHtml) chip.innerHTML = stageHtml;
-    const pips = $('[data-b="pips"]');
-    const total = monstersInStage(state.stage, best);
-    const html = fighting ? '' : Array.from({ length: total }, (_, i) => `<i class="${i < sim.killsInStage ? 'on' : ''}"></i>`).join('');
-    if (pips.innerHTML !== html) pips.innerHTML = html;
+    $('[data-b="bonusFill"]').style.width = `${sim.bonusProgress * 100}%`;
     const bt = $('[data-b="bossTimer"]');
     bt.hidden = !fighting;
     if (!bt.hidden) (bt.firstElementChild as HTMLElement).style.width = `${(sim.bossTimeLeft / bossTimeLimit(state.stage)) * 100}%`;
     // 보스 도전 버튼 / 자동 도전
     const bossBtn = $<HTMLButtonElement>('[data-boss]');
-    const showBtn = sim.gaugeFull && !sim.bossActive && !isMarchStage(state.stage, best);
-    bossBtn.hidden = !showBtn;
-    if (showBtn) {
-      const label = state.autoBoss && sim.waitingToRetry ? '보스 도전 ▶ (자동: 강해지면)' : `${regionStage ? '지역 보스' : '보스'} 도전 ▶`;
-      if (bossBtn.textContent !== label) bossBtn.textContent = label;
-      bossBtn.disabled = sim.dead;
-    }
+    bossBtn.hidden = fighting || isMarchStage(state.stage, best);
+    bossBtn.disabled = !sim.canChallenge;
+    bossBtn.classList.toggle('region', regionStage);
     const auto = $<HTMLButtonElement>('[data-auto]');
     const autoTxt = state.autoBoss ? '자동 도전 켬' : '자동 도전 끔';
     if (auto.textContent !== autoTxt) auto.textContent = autoTxt;

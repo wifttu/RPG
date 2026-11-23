@@ -193,6 +193,36 @@ export class BattleScene extends Phaser.Scene {
     ac.fillRect(0, 0, 2, 1);
     ac.fillRect(0, 2, 2, 1);
     t.addCanvas('arrow', arrow);
+    // 보너스 상자 (닫힘 / 열림) 12x10
+    const chest = (open: boolean) => {
+      const c = document.createElement('canvas');
+      c.width = 12;
+      c.height = 10;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#2a1608';
+      x.fillRect(0, open ? 4 : 2, 12, open ? 6 : 8);
+      x.fillStyle = '#9a5a26';
+      x.fillRect(1, 5, 10, 4);
+      x.fillStyle = '#c47a34';
+      x.fillRect(1, 5, 10, 1);
+      if (open) {
+        x.fillStyle = '#ffe08a';
+        x.fillRect(2, 4, 8, 1);
+        x.fillStyle = '#2a1608';
+        x.fillRect(0, 0, 12, 3);
+        x.fillStyle = '#c47a34';
+        x.fillRect(1, 1, 10, 1);
+      } else {
+        x.fillStyle = '#c47a34';
+        x.fillRect(1, 3, 10, 2);
+      }
+      x.fillStyle = '#ffd84a';
+      x.fillRect(5, open ? 5 : 4, 2, 2);
+      x.fillRect(0, 7, 12, 1);
+      return c;
+    };
+    t.addCanvas('chest', chest(false));
+    t.addCanvas('chest-open', chest(true));
     const orb = document.createElement('canvas');
     orb.width = orb.height = 7;
     const oc = orb.getContext('2d')!;
@@ -370,8 +400,8 @@ export class BattleScene extends Phaser.Scene {
         this.banner(e.reason === 'timeout' ? '시간 초과' : '도전 실패', '#ffb36b');
         this.clearMonster();
         break;
-      case 'bossReady':
-        this.floatText('보스 도전 가능!', HERO_X + 20, FEET_Y - 70, '#ff9aa8', false);
+      case 'bonusChest':
+        this.bonusChest(e.gold);
         break;
       case 'stageChange':
         this.applyBiome(biomeOf(e.stage));
@@ -714,6 +744,39 @@ export class BattleScene extends Phaser.Scene {
       },
     });
     if (tex === 'orb') this.tweens.add({ targets: p, angle: 360, duration: 140 });
+  }
+
+  /** 보너스 게이지가 차면: 상자가 떨어져 튀고 → 열리며 → 코인이 쏟아져 골드 쪽으로 */
+  private bonusChest(gold: number): void {
+    const x = HERO_X + 22;
+    const c = this.add.image(x, 30, 'chest').setOrigin(0.5, 1).setScale(1.6);
+    audio.play('boss');
+    this.tweens.chain({
+      targets: c,
+      tweens: [
+        { y: FEET_Y, duration: 320, ease: 'Bounce.out' },
+        { scaleX: 1.9, scaleY: 1.3, duration: 90, yoyo: true },
+      ],
+      onComplete: () => {
+        c.setTexture('chest-open');
+        audio.play('coin');
+        this.sparks.setParticleTint(0xffe08a);
+        this.sparks.explode(18, x, FEET_Y - 10);
+        for (let i = 0; i < 10; i++) {
+          const coin = this.add.image(x, FEET_Y - 10, 'coin');
+          this.tweens.chain({
+            targets: coin,
+            tweens: [
+              { x: x + Phaser.Math.Between(-26, 26), y: FEET_Y - Phaser.Math.Between(26, 48), duration: 280, ease: 'Quad.out' },
+              { x: 14, y: -6, duration: 460, delay: i * 35, ease: 'Quad.in' },
+            ],
+            onComplete: () => coin.destroy(),
+          });
+        }
+        this.bigNumber(`보너스 +${fmt(gold)}`, x, FEET_Y - 50, UI.gold);
+        this.tweens.add({ targets: c, alpha: 0, delay: 700, duration: 300, onComplete: () => c.destroy() });
+      },
+    });
   }
 
   private killMonster(gold: number): void {

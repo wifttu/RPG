@@ -29,23 +29,22 @@ describe('보스 도전', () => {
     return ev;
   };
 
-  it('잡몹 5마리로 게이지가 차고, 자동 도전이면 보스가 나와 이기면 다음 스테이지', () => {
+  it('자동 도전이면 잡몹 5마리 뒤 보스가 나와 이기면 다음 스테이지', () => {
     const s = createNewGame(7, 0);
     s.upgrades = { atk: 20, hp: 20, spd: 0 };
     const sim = new BattleSim(s, new Rng(7));
     const ev = run(sim, 40);
-    expect(ev.some((e) => e.type === 'bossReady')).toBe(true);
     expect(ev.some((e) => e.type === 'bossStart')).toBe(true);
     expect(s.stage).toBeGreaterThan(1);
   });
 
-  it('자동 도전을 끄면 게이지가 차도 잡몹만 잡고, 버튼(challenge)으로 도전한다', () => {
+  it('자동 도전을 끄면 잡몹만 계속 잡고, 버튼(challenge)으로 도전한다', () => {
     const s = createNewGame(8, 0);
     s.upgrades = { atk: 20, hp: 20, spd: 0 };
     s.autoBoss = false;
     const sim = new BattleSim(s, new Rng(8));
     const ev = run(sim, 60);
-    expect(sim.gaugeFull).toBe(true);
+    expect(sim.autoReady).toBe(true);
     expect(ev.some((e) => e.type === 'bossStart')).toBe(false);
     expect(s.stage).toBe(1);
     const gold = s.gold;
@@ -66,7 +65,6 @@ describe('보스 도전', () => {
     const ev = run(sim, 120);
     expect(ev.some((e) => e.type === 'bossFail')).toBe(true);
     expect(s.stage).toBe(20);
-    expect(sim.gaugeFull).toBe(true);
     expect(sim.waitingToRetry).toBe(true);
     // 강해지면 자동으로 다시 도전해서 통과
     s.gold = 1e12;
@@ -74,6 +72,28 @@ describe('보스 도전', () => {
     const ev2 = run(sim, 60);
     expect(ev2.some((e) => e.type === 'bossStart')).toBe(true);
     expect(s.hero.maxStage).toBeGreaterThan(20);
+  });
+
+  it('보스 도전 버튼은 잡몹을 잡기 전에도 바로 누를 수 있다', () => {
+    const s = createNewGame(11, 0);
+    s.autoBoss = false;
+    const sim = new BattleSim(s, new Rng(11));
+    run(sim, 0.5);
+    expect(sim.challenge()).toBe(true);
+    expect(sim.challenge()).toBe(false); // 이미 보스가 나오는 중
+    const ev = run(sim, 2);
+    expect(ev.some((e) => e.type === 'bossStart')).toBe(true);
+  });
+
+  it('잡몹을 40마리 잡으면 보너스 골드 상자', () => {
+    const s = createNewGame(12, 0);
+    s.upgrades = { atk: 30, hp: 30, spd: 0 };
+    s.autoBoss = false;
+    const sim = new BattleSim(s, new Rng(12));
+    const ev = run(sim, 120);
+    const chests = ev.filter((e) => e.type === 'bonusChest');
+    expect(chests.length).toBeGreaterThan(0);
+    expect(s.bonusKills).toBeLessThan(40);
   });
 
   it('잡몹에게 쓰러지면 한 스테이지 아래로', () => {

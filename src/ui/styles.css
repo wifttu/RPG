@@ -232,19 +232,34 @@ canvas {
 .stage-chip .boss {
   color: var(--bad);
 }
-.pips {
+.bonus-bar {
   display: flex;
-  gap: 2px;
-  margin-top: 3px;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
 }
-.pips i {
-  width: 8px;
-  height: 4px;
-  background: #ffffff33;
+.bonus-bar i {
+  display: block;
+  width: 96px;
+  height: 6px;
+  background: #0b0812cc;
   border: 1px solid var(--outline);
 }
-.pips i.on {
-  background: var(--gold);
+.bonus-bar b {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(#ffbc72, #e8822c);
+  transition: width 0.2s;
+}
+.bonus-bar span {
+  font-size: 9px;
+  line-height: 1;
+  color: #fff;
+  background: #7a4a20;
+  border: 1px solid var(--outline);
+  box-shadow: inset 1px 1px 0 #c47a34;
+  padding: 1px 3px;
 }
 .boss-timer {
   margin-top: 3px;
@@ -993,26 +1008,37 @@ table.odds th {
 .boss-ctl {
   display: flex;
   gap: 4px;
-  margin-top: 4px;
   align-items: center;
 }
 .boss-btn {
   pointer-events: auto;
   font: inherit;
   font-size: 11px;
+  letter-spacing: 1px;
   color: #fff;
   background: #a8283a;
   border: 2px solid var(--outline);
   box-shadow:
     inset 2px 2px 0 #e05a6a,
-    0 0 8px #ff5c6c;
-  padding: 4px 8px;
+    0 0 6px #ff5c6c;
+  padding: 1px 7px;
   cursor: pointer;
+}
+.boss-btn::before {
+  content: '☠ ';
+}
+.boss-btn.region {
   animation: ring 0.9s steps(2) infinite;
+}
+.boss-btn:active {
+  transform: translateY(1px);
 }
 .boss-btn:disabled {
   filter: grayscale(0.7);
   animation: none;
+}
+.auto-chip {
+  margin-top: 4px;
 }
 .auto-chip {
   pointer-events: auto;
