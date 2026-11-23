@@ -1,5 +1,6 @@
 import { BALANCE, type UpgradeKind } from '../config/balance';
 import type { GameState, Hero } from './state';
+import { heirloomMultiplier } from './heirloom';
 import { sumEffects } from './traits';
 
 export interface HeroStats {
@@ -74,13 +75,14 @@ export function computeStats(state: GameState, now = Date.now()): HeroStats {
   const ageMul = ageMultiplier(state.hero.age, lifespan);
   const fameMul = fameMultiplier(state.fame);
   const boost = now < state.boostUntil ? BALANCE.ads.goldBoostMul : 1;
+  const hl = state.heirlooms ?? { sword: 0, shield: 0, ring: 0 };
 
   return {
-    atk: (h.baseAtk + genes.str * h.atkPerStr) * upgradeMultiplier('atk', state.upgrades.atk) * (1 + e.atkMul) * fameMul * ageMul,
-    maxHp: (h.baseHp + genes.vit * h.hpPerVit) * upgradeMultiplier('hp', state.upgrades.hp) * (1 + e.hpMul) * fameMul * ageMul,
+    atk: (h.baseAtk + genes.str * h.atkPerStr) * upgradeMultiplier('atk', state.upgrades.atk) * (1 + e.atkMul) * fameMul * ageMul * heirloomMultiplier('sword', hl.sword),
+    maxHp: (h.baseHp + genes.vit * h.hpPerVit) * upgradeMultiplier('hp', state.upgrades.hp) * (1 + e.hpMul) * fameMul * ageMul * heirloomMultiplier('shield', hl.shield),
     atkPerSec: (h.baseAtkSpeed + genes.agi * h.atkSpeedPerAgi) * upgradeMultiplier('spd', state.upgrades.spd) * (1 + e.spdMul),
     crit: Math.min(0.75, h.baseCrit + genes.agi * h.critPerAgi + e.critAdd),
-    goldMul: (1 + e.goldMul) * fameMul * boost,
+    goldMul: (1 + e.goldMul) * fameMul * boost * heirloomMultiplier('ring', hl.ring),
     fameMul: 1 + e.fameMul,
     lifespan,
     ageMul,

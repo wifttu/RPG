@@ -2,6 +2,7 @@ import { BALANCE, UPGRADE_KINDS } from '../config/balance';
 import { BattleSim } from './battle';
 import { buyUpgrade, upgradeCost } from './economy';
 import { geneScore } from './genetics';
+import { buyHeirloom, heirloomCost } from './heirloom';
 import { canRetire, makeChildCandidates, makeSpouseCandidates, previewFame, retire } from './lineage';
 import { Rng } from './rng';
 import { createNewGame, type GameState } from './state';
@@ -37,7 +38,15 @@ export interface AutoplayOptions {
   adBoost?: boolean;
 }
 
+function buyHeirlooms(s: GameState): void {
+  for (let i = 0; i < 100; i++) {
+    const k = (['sword', 'shield', 'ring'] as const).slice().sort((a, b) => heirloomCost(s.heirlooms[a]) - heirloomCost(s.heirlooms[b]))[0];
+    if (!buyHeirloom(s, k)) return;
+  }
+}
+
 function buyCheapest(s: GameState): void {
+  buyHeirlooms(s);
   for (let i = 0; i < 500; i++) {
     const k = [...UPGRADE_KINDS]
       .filter((k) => s.upgrades[k] < BALANCE.upgrades[k].max)

@@ -4,8 +4,9 @@ import type { Game } from '../core/game';
 import { canRetire } from '../core/lineage';
 import { audio } from '../audio/audio';
 import { josa } from './format';
+import { track } from '../core/analytics';
 
-export type TutorialTab = 'grow' | 'family' | 'shop';
+export type TutorialTab = 'grow' | 'family' | 'quest' | 'shop';
 
 interface Step {
   id: string;
@@ -61,6 +62,25 @@ const STEPS: Step[] = [
       '이 막대는 가주의 <b>일생</b>이에요. 하늘도 새벽에서 밤으로 바뀌어요.<br>' +
       '<b>전성기</b>에 가장 강하고, 나이가 들면 점점 약해져요.',
     button: '확인',
+  },
+  {
+    id: 'quest',
+    when: (g) => g.state.hero.maxStage >= 15,
+    target: '[data-tab="quest"]',
+    title: '매일 할 일',
+    text: () => '<b>임무</b> 탭에서 출석 보상과 일일 임무 보상을 받을 수 있어요. 받을 게 있으면 빨간 점이 떠요.',
+    button: '확인',
+    doneWhen: (_g, tab) => tab === 'quest',
+  },
+  {
+    id: 'heirloom',
+    when: (g) => g.state.legacy >= 2,
+    target: '[data-hl="sword"]',
+    tab: 'grow',
+    title: '가보',
+    text: () => '보스가 <b>유산석</b>을 떨어뜨렸어요! 가보는 은퇴해도 사라지지 않고 대대로 물려줘요. 가문의 검을 강화해 보세요.',
+    button: '확인',
+    doneWhen: (g) => g.state.heirlooms.sword + g.state.heirlooms.shield + g.state.heirlooms.ring > 0,
   },
   {
     id: 'retire',
@@ -120,12 +140,14 @@ export class Tutorial {
   }
 
   private complete(id: string): void {
+    track('tutorial_step', { id });
     if (!this.done.includes(id)) this.done.push(id);
     this.core.save();
     this.hide();
   }
 
   skipAll(): void {
+    track('tutorial_skip', { at: this.current()?.id ?? 'none' });
     for (const s of STEPS) if (!this.done.includes(s.id)) this.done.push(s.id);
     this.core.save();
     this.hide();

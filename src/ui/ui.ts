@@ -11,8 +11,18 @@ import { MUTATION_RARITY_TABLE, RARITY_LABEL, getTrait, traitsOfRarity, type Rar
 import { fmt, fmtDuration, fmtMul, fmtPct, josa } from './format';
 import { audio } from '../audio/audio';
 import { Tutorial } from './tutorial';
+import { track, eventCounts } from '../core/analytics';
+import { clock } from '../core/clock';
+import { adFree, rewardText, type Mission, type Reward } from '../core/daily';
+import { HEIRLOOMS, heirloomCost, heirloomMultiplier, heirloomTitle } from '../core/heirloom';
+import { PRODUCTS, canBuy, formatKrw } from '../core/products';
+import { importSaveCode } from '../core/save';
+import { createNewGame } from '../core/state';
+import { nativeAds } from '../platform/ads';
+import type { HeirloomKind } from '../core/state';
+import { questBadge, questHtml, refreshQuest } from './questPanel';
 
-type Tab = 'grow' | 'family' | 'shop';
+type Tab = 'grow' | 'family' | 'quest' | 'shop';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
 
@@ -65,10 +75,23 @@ export class UI {
     this.renderPanel();
     this.core.on('retirementDue', () => this.queueModal(() => this.openRetirement()));
     this.core.on('battle', (evs) => {
-      if (evs.some((e) => e.type === 'kill')) this.pulse('.cur.gold');
+      for (const e of evs) {
+        if (e.type === 'kill') this.pulse('.cur.gold');
+        if (e.type === 'wall') {
+          this.toast(`${e.stage}스테이지에서 막혔어요. 머물면서 골드를 모아요 — 수련·가보로 강해지면 자동으로 다시 도전해요`, 3600);
+          track('wall', { stage: e.stage, gen: this.core.state.hero.generation });
+        }
+        if (e.type === 'retry') this.toast(`강해졌어요! ${e.stage}스테이지에 다시 도전해요`);
+      }
     });
     this.core.on('newGeneration', () => this.renderPanel());
     this.bindSound();
+    $('[data-stay]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      audio.play('click');
+      this.core.setStay(false);
+      this.toast(`${this.core.sim.wallStage}스테이지에 다시 도전해요`);
+    });
     this.tutorial = new Tutorial(this.core, {
       modalOpen: () => this.modalOpen,
       showTab: (t) => this.setTab(t),
@@ -129,6 +152,10 @@ export class UI {
         <div class="stage-chip" data-b="stage"></div>
         <div class="pips" data-b="pips"></div>
         <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
+        <div class="status-chips">
+          <button class="stay-chip" data-stay hidden></button>
+          <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
+        </div>
       </div>
       <div style="display:grid;gap:4px;justify-items:end">
         <div class="boost-chip" data-b="boost" hidden></div>
@@ -189,6 +216,17 @@ export class UI {
     const boostEl = $('[data-b="boost"]');
     boostEl.hidden = boostLeft <= 0;
     if (boostLeft > 0) boostEl.textContent = `골드 x2 · ${fmtDuration(boostLeft / 1000)}`;
+    // 머물기 / 부상
+    const stay = $<HTMLButtonElement>('[data-stay]');
+    stay.hidden = !state.stayMode || boss;
+    if (state.stayMode) {
+      const t = `머무는 중 · ${this.core.sim.wallStage}스테이지 도전 ▶`;
+      if (stay.textContent !== t) stay.textContent = t;
+    }
+    $('[data-b="injury"]').hidden = !this.core.sim.injured;
+    // 임무 탭 알림 점
+    const dot = $('#tabs [data-tab="quest"] .dot');
+    if (dot) dot.hidden = !questBadge(state);
     const sp = $('[data-b="speed"]');
     sp.hidden = this.core.timeScale === 1;
     sp.textContent = `테스트 배속 x${this.core.timeScale}`;
@@ -206,11 +244,15 @@ export class UI {
     const tabs: [Tab, string, Parameters<typeof iconImg>[0]][] = [
       ['grow', '성장', 'atk'],
       ['family', '가문', 'crown'],
+      ['quest', '임무', 'fame'],
       ['shop', '상점', 'gem'],
     ];
     const nav = $('#tabs');
     nav.innerHTML = tabs
-      .map(([id, label, icon]) => `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${iconImg(icon, '')}<span>${label}</span></button>`)
+      .map(
+        ([id, label, icon]) =>
+          `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${iconImg(icon, '')}<span>${label}</span>${id === 'quest' ? '<i class="dot" hidden></i>' : ''}</button>`,
+      )
       .join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
       b.addEventListener('click', () => {
@@ -221,6 +263,7 @@ export class UI {
   }
 
   setTab(tab: Tab): void {
+    if (tab !== this.tab) track('tab', { tab });
     this.tab = tab;
     $('#tabs')
       .querySelectorAll<HTMLButtonElement>('button')
@@ -232,6 +275,7 @@ export class UI {
   private renderPanel(): void {
     if (this.tab === 'grow') this.panel.innerHTML = this.growHtml();
     else if (this.tab === 'family') this.panel.innerHTML = this.familyHtml();
+    else if (this.tab === 'quest') this.panel.innerHTML = questHtml(this.core);
     else this.panel.innerHTML = this.shopHtml();
     this.bindPanel();
     this.refreshPanel();
@@ -256,12 +300,28 @@ export class UI {
         ).join('')}
       </div>
       <div class="card">
+        <h3>${iconImg('atk')} 가보 <small>유산석 <b data-b="legacy" style="color:var(--gem)"></b> · 보스가 떨어뜨려요</small></h3>
+        <p class="small muted" style="margin:0 0 4px">은퇴해도 사라지지 않고 대대로 물려줘요.</p>
+        ${HEIRLOOMS.map(
+          (h) => `
+          <div class="upg">
+            <div class="ico-box">${iconImg(h.kind === 'sword' ? 'atk' : h.kind === 'shield' ? 'hp' : 'coin')}</div>
+            <div class="meta">
+              <b data-b="hl-name-${h.kind}"></b><span class="lv" data-b="hl-lv-${h.kind}"></span>
+              <div class="eff" data-b="hl-eff-${h.kind}"></div>
+            </div>
+            <button class="btn blue" data-hl="${h.kind}">유산석 <span data-b="hl-cost-${h.kind}"></span></button>
+          </div>`,
+        ).join('')}
+      </div>
+      <div class="card">
         <h3>${iconImg('crown')} 은퇴와 계승</h3>
         <p class="small muted" style="margin:0 0 8px">
           가주는 해마다 나이를 먹어요. 전성기가 지나면 힘이 약해지니, 적당한 때에 은퇴하고 후계자를 정하세요.
           은퇴하면 <b style="color:var(--fame)">명성</b>을 얻어 다음 세대가 영원히 강해집니다.
         </p>
         <button class="btn wide" data-act="retire"><span data-b="retireLabel"></span></button>
+        <p class="small retire-hint" data-b="retireHint"></p>
       </div>
       <div class="card">
         <div class="hero-card">
@@ -345,21 +405,14 @@ export class UI {
         </div>
       </div>
       <div class="card">
-        <h3>${iconImg('gem')} 상품 <small>결제는 출시 버전에서 연결</small></h3>
-        ${[
-          ['스타터 팩', '보석 300 + 골드 부스트 2시간', '₩1,200', '첫 구매 한정'],
-          ['명문가 월정액', '매일 보석 100 · 광고 없이 보상 · 혼담 하루 1회 무료', '₩5,500', '추천'],
-          ['광고 제거', '광고 없이 모든 광고 보상 즉시 획득', '₩6,500', ''],
-          ['보석 한 상자', '보석 1,200', '₩12,000', ''],
-        ]
-          .map(
-            ([name, desc, price, tag]) => `
+        <h3>${iconImg('gem')} 상품 <small>지금은 결제 테스트 (실제 결제 없음)</small></h3>
+        ${PRODUCTS.map(
+          (p) => `
           <div class="shop-item">
-            <div class="meta"><b>${name}</b>${tag ? `<span class="tag">${tag}</span>` : ''}<div class="small muted">${desc}</div></div>
-            <button class="btn ghost" disabled><span class="price">${price}</span></button>
+            <div class="meta"><b>${p.name}</b>${p.tag ? `<span class="tag">${p.tag}</span>` : ''}<div class="small muted">${p.desc}</div></div>
+            <button class="btn ${canBuy(this.core.state, p.id) ? 'gold' : 'ghost'}" data-buy="${p.id}" ${canBuy(this.core.state, p.id) ? '' : 'disabled'}><span>${canBuy(this.core.state, p.id) ? formatKrw(p.priceKrw) : '구매함'}</span></button>
           </div>`,
-          )
-          .join('')}
+        ).join('')}
       </div>
       <div class="card">
         <h3>확률 정보 공개</h3>
@@ -367,10 +420,19 @@ export class UI {
         <button class="btn ghost wide" data-act="odds">확률표 보기</button>
       </div>
       <div class="card">
+        <h3>기기 이전</h3>
+        <p class="small muted" style="margin:0 0 8px">휴대폰을 바꿀 때: 지금 기기에서 코드를 복사해서, 새 기기에서 붙여넣으세요.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn ghost" data-act="export">이전 코드 만들기</button>
+          <button class="btn ghost" data-act="import">코드로 불러오기</button>
+        </div>
+      </div>
+      <div class="card">
         <h3>개발용</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn ghost" data-act="speed">배속 바꾸기</button>
           <button class="btn ghost" data-act="age">+10살</button>
+          <button class="btn ghost" data-act="events">플레이 기록</button>
           <button class="btn ghost" data-act="reset">처음부터</button>
         </div>
       </div>`;
@@ -407,6 +469,34 @@ export class UI {
     this.panel.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) =>
       b.addEventListener('click', () => this.action(b.dataset.act!)),
     );
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-hl]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (this.core.heirloom(b.dataset.hl as HeirloomKind)) {
+          audio.play('upgrade', 0.8);
+          this.refreshPanel();
+        }
+      }),
+    );
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-claim]').forEach((b) =>
+      b.addEventListener('click', () => this.claim(b.dataset.claim!)),
+    );
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((b) =>
+      b.addEventListener('click', () => this.openPurchase(b.dataset.buy!)),
+    );
+  }
+
+  private claim(what: string): void {
+    const core = this.core;
+    let r: Reward | null = null;
+    if (what === 'attend') r = core.claimAttendance();
+    else if (what === 'monthly') r = core.claimMonthly() ? { gems: 100 } : null;
+    else if (what.startsWith('m:')) r = core.claimMission(what.slice(2) as Mission['id'] | 'all');
+    else if (what.startsWith('ach:')) r = core.claimAchievement(what.slice(4));
+    if (r) {
+      audio.play('reward');
+      this.toast(`${rewardText(r)} 받았어요!`);
+      this.renderPanel();
+    }
   }
 
   private action(act: string): void {
@@ -416,13 +506,13 @@ export class UI {
         if (canRetire(core.state)) core.beginRetirement();
         break;
       case 'ad-boost':
-        this.showAd(() => {
+        this.showAd('gold_boost', () => {
           core.activateGoldBoost();
           this.toast('골드 2배 부스트 시작!');
         });
         break;
       case 'ad-gems':
-        this.showAd(() => {
+        this.showAd('gems', () => {
           core.addGems(BALANCE.gems.adReward);
           this.toast(`보석 +${BALANCE.gems.adReward}`);
         });
@@ -440,10 +530,16 @@ export class UI {
         core.state.hero.age = Math.min(core.stats.lifespan, core.state.hero.age + 10);
         break;
       case 'reset':
-        if (confirm('저장 데이터를 지우고 처음부터 시작할까요?')) {
-          localStorage.clear();
-          location.reload();
-        }
+        this.openReset();
+        break;
+      case 'export':
+        this.openExport();
+        break;
+      case 'import':
+        this.openImport();
+        break;
+      case 'events':
+        this.openEvents();
         break;
     }
   }
@@ -477,6 +573,19 @@ export class UI {
         const btn = $<HTMLButtonElement>(`[data-upg="${k}"]`, this.panel);
         if (btn) btn.disabled = maxed || state.gold < cost;
       }
+      this.set('legacy', fmt(state.legacy));
+      for (const h of HEIRLOOMS) {
+        const lv = state.heirlooms[h.kind];
+        const cost = heirloomCost(lv);
+        this.set(`hl-name-${h.kind}`, heirloomTitle(h.kind, lv));
+        this.set(`hl-lv-${h.kind}`, `Lv.${lv}`);
+        const eff = $(`[data-b="hl-eff-${h.kind}"]`, this.panel);
+        const html = `${h.stat} x${heirloomMultiplier(h.kind, lv).toFixed(2)} → <em>x${heirloomMultiplier(h.kind, lv + 1).toFixed(2)}</em>${(lv + 1) % 10 === 0 ? ' <em>돌파!</em>' : ''}`;
+        if (eff && eff.innerHTML !== html) eff.innerHTML = html;
+        this.set(`hl-cost-${h.kind}`, fmt(cost));
+        const btn = $<HTMLButtonElement>(`[data-hl="${h.kind}"]`, this.panel);
+        if (btn) btn.disabled = state.legacy < cost;
+      }
       const rb = $<HTMLButtonElement>('[data-act="retire"]', this.panel);
       if (rb) {
         const ok = canRetire(state);
@@ -487,10 +596,16 @@ export class UI {
             ? `은퇴하고 후계자 정하기 · 명성 +${fmt(previewFame(state))}`
             : `${BALANCE.time.retireMinAge}세부터 은퇴할 수 있어요 (지금 ${Math.floor(state.hero.age)}세)`,
         );
+        const hint = this.retireAdvice();
+        this.set('retireHint', hint?.text ?? '');
+        const hintEl = $('[data-b="retireHint"]', this.panel);
+        if (hintEl) hintEl.className = `small retire-hint ${hint?.level ?? ''}`;
       }
     } else if (this.tab === 'family') {
       this.set('famAge', `${Math.floor(state.hero.age)}세`);
       this.set('famStage', String(state.hero.maxStage));
+    } else if (this.tab === 'quest') {
+      refreshQuest(this.panel, this.core);
     } else if (this.tab === 'shop') {
       const left = state.boostUntil - Date.now();
       this.set('boostInfo', left > 0 ? `남은 시간 ${fmtDuration(left / 1000)} (광고 보면 30분 연장)` : '사냥으로 얻는 골드가 2배');
@@ -515,14 +630,33 @@ export class UI {
     return { root: back.querySelector('.modal') as HTMLElement, close };
   }
 
-  private toast(msg: string): void {
-    const t = el(`<div class="toast">${esc(msg)}</div>`);
+  private toast(msg: string, ms = 2100): void {
+    const t = el(`<div class="toast" style="animation-delay:0s,${(ms - 400) / 1000}s">${esc(msg)}</div>`);
     $('#toast-root').appendChild(t);
-    setTimeout(() => t.remove(), 2100);
+    setTimeout(() => t.remove(), ms);
   }
 
-  /** 테스트용 가짜 광고. 출시 버전에서는 AdMob 보상형 광고(@capacitor-community/admob)로 교체. */
-  private showAd(onReward: () => void): void {
+  /**
+   * 보상형 광고. 광고 제거·월정액이면 바로 보상.
+   * 앱(안드로이드)에서는 AdMob 보상형 광고, 웹에서는 3초짜리 테스트 화면.
+   */
+  private showAd(placement: string, onReward: () => void): void {
+    const reward = () => {
+      this.core.state.progress.adsWatched++;
+      track('ad_reward', { placement });
+      audio.play('reward');
+      onReward();
+    };
+    if (adFree(this.core.state, clock.now())) {
+      reward();
+      return;
+    }
+    if (nativeAds()) {
+      void nativeAds()!
+        .showRewarded(placement)
+        .then((ok) => (ok ? reward() : this.toast('광고를 끝까지 보면 보상을 받아요')));
+      return;
+    }
     const { root, close } = this.openModal(`
       <div class="ad-screen">
         <div class="small muted">테스트 광고 — 출시 버전에서는 실제 보상형 광고</div>
@@ -537,8 +671,7 @@ export class UI {
       if (n <= 0) {
         clearInterval(iv);
         close();
-        audio.play('reward');
-        onReward();
+        reward();
       }
     }, 700);
   }
@@ -561,11 +694,138 @@ export class UI {
     });
     root.querySelector('[data-a="ad"]')!.addEventListener('click', () => {
       close();
-      this.showAd(() => {
+      this.showAd('offline_x2', () => {
         this.core.claimOffline(BALANCE.ads.offlineMul);
         this.toast(`오프라인 보상 2배! +${fmt(off.gold)}`);
       });
     });
+  }
+
+  /** 은퇴 시점 조언: 명성이 거의 안 쌓이면 경고 */
+  private retireAdvice(): { level: 'bad' | 'warn' | 'good'; text: string } | null {
+    const s = this.core.state;
+    if (!canRetire(s)) return null;
+    const fame = previewFame(s);
+    const off = BALANCE.fame.offset;
+    if (fame <= 0)
+      return { level: 'bad', text: `⚠ 지금 은퇴하면 명성 +0 — 다음 가주가 강해지지 않아요. ${off + 1}스테이지 이상 가야 명성을 얻어요.` };
+    const before = fameMultiplier(s.fame);
+    const after = fameMultiplier(s.fame + fame);
+    if (after / before < 1.3)
+      return {
+        level: 'warn',
+        text: `명성 배율이 ${fmtMul(before)} → ${fmtMul(after)}로 조금만 올라요. 최고 기록을 더 올리면 명성이 크게 늘어요.`,
+      };
+    return { level: 'good', text: `은퇴하면 다음 가주가 ${fmtMul(after / before)} 강해져요.` };
+  }
+
+  private openPurchase(id: string): void {
+    const p = PRODUCTS.find((x) => x.id === id);
+    if (!p || !canBuy(this.core.state, id)) return;
+    track('iap_click', { id });
+    const { root, close } = this.openModal(`
+      <h2>${p.name}</h2>
+      <p class="lead">${p.desc}</p>
+      <div class="big-num">${formatKrw(p.priceKrw)}</div>
+      <p class="retire-warn warn">결제 테스트예요. 실제로 돈이 나가지 않아요. 출시 버전에서는 Google Play 결제창이 떠요.</p>
+      <div class="actions">
+        <button class="btn ghost" data-a="x">취소</button>
+        <button class="btn gold" data-a="buy">테스트 구매</button>
+      </div>`);
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="buy"]')!.addEventListener('click', () => {
+      close();
+      if (this.core.purchase(id)) {
+        audio.play('reward');
+        this.toast(`${p.name} 구매 완료 (테스트)`);
+        this.renderPanel();
+      }
+    });
+  }
+
+  private openExport(): void {
+    const code = this.core.exportCode();
+    const { root, close } = this.openModal(`
+      <h2>기기 이전 코드</h2>
+      <p class="lead small">이 코드를 복사해서 새 기기의 상점 → 기기 이전 → 코드로 불러오기에 붙여넣으세요. 다른 사람에게 알려 주지 마세요.</p>
+      <textarea class="code" id="export-code" readonly rows="5">${code}</textarea>
+      <div class="actions">
+        <button class="btn ghost" data-a="x">닫기</button>
+        <button class="btn gold" data-a="copy">복사하기</button>
+      </div>`);
+    const ta = root.querySelector<HTMLTextAreaElement>('textarea')!;
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="copy"]')!.addEventListener('click', () => {
+      navigator.clipboard
+        ?.writeText(code)
+        .then(() => this.toast('복사했어요'))
+        .catch(() => {
+          ta.select();
+          this.toast('코드를 길게 눌러 복사해 주세요');
+        }) ?? (ta.select(), this.toast('코드를 길게 눌러 복사해 주세요'));
+    });
+  }
+
+  private openImport(): void {
+    const { root, close } = this.openModal(`
+      <h2>코드로 불러오기</h2>
+      <p class="lead small">다른 기기에서 만든 이전 코드를 붙여넣으세요. <b>지금 기기의 진행 상황은 덮어써져요.</b></p>
+      <textarea class="code" id="import-code" rows="5" placeholder="HEIRS1. 으로 시작하는 코드"></textarea>
+      <p class="retire-warn bad" data-err hidden></p>
+      <div class="actions">
+        <button class="btn ghost" data-a="x">취소</button>
+        <button class="btn gold" data-a="load">불러오기</button>
+      </div>`);
+    const ta = root.querySelector<HTMLTextAreaElement>('textarea')!;
+    const err = root.querySelector<HTMLElement>('[data-err]')!;
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="load"]')!.addEventListener('click', () => {
+      const r = importSaveCode(ta.value);
+      if (!r.ok) {
+        err.textContent = r.error;
+        err.hidden = false;
+        return;
+      }
+      close();
+      this.core.replaceState(r.state);
+      this.lastGen = -1;
+      this.renderPanel();
+      this.toast(`${r.state.houseName} 가문 ${r.state.hero.generation}대를 불러왔어요`);
+    });
+  }
+
+  private openReset(): void {
+    const { root, close } = this.openModal(`
+      <h2>처음부터 시작</h2>
+      <p class="lead">저장 데이터를 모두 지우고 1대부터 새로 시작할까요? 되돌릴 수 없어요.</p>
+      <div class="actions">
+        <button class="btn ghost" data-a="x">취소</button>
+        <button class="btn" data-a="ok">지우고 새로 시작</button>
+      </div>`);
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="ok"]')!.addEventListener('click', () => {
+      try {
+        localStorage.removeItem('heirs.save.v1');
+      } catch {
+        /* noop */
+      }
+      close();
+      this.core.replaceState(createNewGame());
+      this.lastGen = -1;
+      this.renderPanel();
+    });
+  }
+
+  private openEvents(): void {
+    const rows = eventCounts()
+      .map(([n, c]) => `<tr><td>${esc(n)}</td><td>${c}</td></tr>`)
+      .join('');
+    const { root, close } = this.openModal(`
+      <h2>플레이 기록</h2>
+      <p class="lead small">기기 안에만 저장된 행동 기록이에요 (최근 400개). 출시하면 분석 서비스로 보내서 어디서 그만두는지 확인해요.</p>
+      <table class="odds"><tr><th>이벤트</th><th>횟수</th></tr>${rows || '<tr><td colspan="2">아직 없어요</td></tr>'}</table>
+      <div class="actions"><button class="btn ghost" data-a="x">닫기</button></div>`);
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
   }
 
   private openOdds(): void {
@@ -635,7 +895,11 @@ export class UI {
           <div class="stat"><span>얻을 명성</span><b style="color:var(--fame)">+${fmt(fame)}</b></div>
           <div class="stat"><span>명성 배율</span><b style="color:var(--good)">${fmtMul(fameMultiplier(core.state.fame))} → ${fmtMul(fameMultiplier(core.state.fame + fame))}</b></div>
         </div>
-        <p class="small muted">은퇴하면 골드·수련·스테이지는 초기화되고, 명성과 보석, 그리고 피(유전자)가 다음 세대로 이어져요.</p>
+        ${(() => {
+          const a = this.retireAdvice();
+          return a && !forced ? `<p class="retire-warn ${a.level}">${a.text}</p>` : '';
+        })()}
+        <p class="small muted">은퇴하면 골드·수련·스테이지는 초기화되고, 명성·보석·가보·유산석, 그리고 피(유전자)가 다음 세대로 이어져요.</p>
         <div class="actions">
           ${forced ? '' : '<button class="btn ghost" data-a="cancel">더 모험하기</button>'}
           <button class="btn" data-a="next">배우자 찾기</button>

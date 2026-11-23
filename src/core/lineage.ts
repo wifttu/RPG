@@ -5,6 +5,7 @@ import { generateName } from './names';
 import type { Rng } from './rng';
 import { createHero, newId, type GameState } from './state';
 import { computeStats } from './stats';
+import { getTrait } from './traits';
 
 import type { PendingCandidate } from './state';
 
@@ -59,7 +60,11 @@ export function retire(state: GameState, spouse: Candidate, child: Candidate, rn
   state.gold = 0;
   state.upgrades = { atk: 0, hp: 0, spd: 0 };
   state.stage = 1;
-  state.boostUntil = 0;
+  // 골드 부스트(광고·출석·구매로 얻은 것)는 세대가 바뀌어도 유지
+  state.stayMode = false;
+  state.progress.retirements++;
+  if (child.mutation) state.progress.mutations++;
+  if (child.genes.traits.some((id) => getTrait(id).rarity === 'legendary')) state.progress.legendaryBorn++;
   delete state.pendingSpouses;
   delete state.pendingChildren;
   return fameEarned;

@@ -31,6 +31,15 @@ export const BALANCE = {
     critPerAgi: 0.001,
     critMultiplier: 2.0,
     respawnSec: 2,
+    /** 쓰러진 뒤 부상: 이 시간 동안 공격력 감소 */
+    injurySec: 6,
+    injuryAtkMul: 0.75,
+  },
+  wall: {
+    /** 같은 스테이지에서 이만큼 실패하면 자동으로 '머물기' */
+    failsToStay: 3,
+    /** 머무는 동안 전투력이 이 배율만큼 오르면 자동으로 다시 도전 */
+    retryPowerGain: 1.25,
   },
   upgrades: {
     atk: { baseCost: 8, growth: 1.15, perLevel: 0.35, max: Infinity },

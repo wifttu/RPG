@@ -8,9 +8,15 @@ import {
   retire,
   type Candidate,
 } from './lineage';
+import { ACHIEVEMENTS, isDone } from './achievements';
+import { track } from './analytics';
+import { clock, isRollback, markSeen } from './clock';
+import { claimAttendance, claimMission, claimMonthly, grantReward, rolloverDaily, type Mission, type Reward } from './daily';
+import { buyHeirloom } from './heirloom';
+import { grantProduct } from './products';
 import { Rng } from './rng';
-import { loadGame, saveGame } from './save';
-import { createNewGame, type GameState } from './state';
+import { exportSaveCode, loadGame, saveGame } from './save';
+import { createNewGame, type GameState, type HeirloomKind } from './state';
 import { computeStats, secondsPerYear } from './stats';
 
 type Listener<T> = (payload: T) => void;
@@ -34,19 +40,51 @@ export class Game {
   private saveTimer = 0;
   timeScale = 1;
 
-  constructor(now = Date.now()) {
+  /** 이번 접속에서 시계를 뒤로 돌린 게 감지됐는지 */
+  tampered = false;
+
+  constructor(now = clock.now()) {
     const loaded = loadGame();
     this.state = loaded ?? createNewGame(now, now);
     this.rng = new Rng(this.state.rngSeed);
     if (loaded) {
-      const off = computeOffline(this.state, now);
-      if (off.seconds > 60 && off.gold > 0) this.offline = off;
-      this.state.hero.age += off.years;
-      this.state.gold += off.gold;
+      if (isRollback(this.state, now)) {
+        // 시계를 뒤로 돌림: 오프라인 보상 없음
+        this.tampered = true;
+        this.state.timeGuard.tamperCount++;
+        track('clock_rollback', { count: this.state.timeGuard.tamperCount });
+      } else {
+        const off = computeOffline(this.state, now);
+        if (off.seconds > 60 && off.gold > 0) this.offline = off;
+        this.state.hero.age += off.years;
+        this.state.gold += off.gold;
+      }
     }
+    rolloverDaily(this.state, now);
+    markSeen(this.state, now);
     this.state.lastSeen = now;
     this.sim = new BattleSim(this.state, this.rng);
+    track('session_start', { gen: this.state.hero.generation, best: this.state.hero.maxStage, isNew: !loaded });
     if (!loaded) this.save(now);
+  }
+
+  /** 기기 이전 코드로 불러온 데이터로 교체 */
+  replaceState(next: GameState): void {
+    this.state = next;
+    this.rng = new Rng(next.rngSeed);
+    this.sim = new BattleSim(this.state, this.rng);
+    this.retiring = false;
+    this.offline = null;
+    this.save(clock.now());
+    track('save_import', { gen: next.hero.generation });
+    this.emit('newGeneration', { fameEarned: 0 });
+    this.emit('change', undefined);
+  }
+
+  exportCode(): string {
+    this.save();
+    track('save_export');
+    return exportSaveCode(this.state);
   }
 
   on<K extends keyof GameEvents>(k: K, fn: Listener<GameEvents[K]>): void {
@@ -86,8 +124,10 @@ export class Game {
     if (this.saveTimer > 5) this.save(now);
   }
 
-  save(now = Date.now()): void {
+  save(now = clock.now()): void {
     this.saveTimer = 0;
+    rolloverDaily(this.state, now);
+    markSeen(this.state, now);
     this.state.lastSeen = now;
     this.state.rngSeed = this.rng.seed;
     saveGame(this.state);
@@ -96,6 +136,8 @@ export class Game {
   upgrade(kind: UpgradeKind): boolean {
     const ok = buyUpgrade(this.state, kind);
     if (ok) {
+      this.state.progress.upgradesBought++;
+      this.state.daily.upgrades++;
       this.sim.refreshStats();
       this.emit('change', undefined);
     }
@@ -111,12 +153,72 @@ export class Game {
     this.save();
   }
 
-  activateGoldBoost(now = Date.now()): void {
+  activateGoldBoost(now = clock.now()): void {
     const base = Math.max(now, this.state.boostUntil);
     this.state.boostUntil = base + BALANCE.ads.goldBoostMinutes * 60_000;
     this.sim.refreshStats(now);
     this.emit('change', undefined);
     this.save(now);
+  }
+
+  heirloom(kind: HeirloomKind): boolean {
+    const ok = buyHeirloom(this.state, kind);
+    if (ok) {
+      track('heirloom_up', { kind, lv: this.state.heirlooms[kind] });
+      this.sim.refreshStats();
+      this.emit('change', undefined);
+      this.save();
+    }
+    return ok;
+  }
+
+  /** 벽 앞에서 머물기/도전 */
+  setStay(on: boolean): void {
+    this.sim.setStay(on);
+    track(on ? 'stay_on' : 'stay_off', { stage: this.state.stage });
+    this.emit('change', undefined);
+  }
+
+  claimAttendance(now = clock.now()): Reward | null {
+    const r = claimAttendance(this.state, now);
+    if (r) this.afterReward('attendance', { day: this.state.attendance.count });
+    return r;
+  }
+
+  claimMission(id: Mission['id'] | 'all', now = clock.now()): Reward | null {
+    rolloverDaily(this.state, now);
+    const r = claimMission(this.state, id, now);
+    if (r) this.afterReward('mission', { id });
+    return r;
+  }
+
+  claimMonthly(now = clock.now()): boolean {
+    const ok = claimMonthly(this.state, now);
+    if (ok) this.afterReward('monthly_daily');
+    return ok;
+  }
+
+  claimAchievement(id: string, now = clock.now()): Reward | null {
+    const a = ACHIEVEMENTS.find((x) => x.id === id);
+    if (!a || this.state.achievements.includes(id) || !isDone(this.state, a)) return null;
+    this.state.achievements.push(id);
+    grantReward(this.state, a.reward, now);
+    this.afterReward('achievement', { id });
+    return a.reward;
+  }
+
+  /** 결제 완료 후 (스토어 검증을 통과한 뒤) 호출 */
+  purchase(productId: string, now = clock.now()): boolean {
+    const ok = grantProduct(this.state, productId, now);
+    if (ok) this.afterReward('purchase', { id: productId });
+    return ok;
+  }
+
+  private afterReward(kind: string, props?: Record<string, string | number>): void {
+    track(`claim_${kind}`, props);
+    this.sim.refreshStats();
+    this.emit('change', undefined);
+    this.save();
   }
 
   addGems(n: number): void {
@@ -153,6 +255,7 @@ export class Game {
   /** 보석을 써서 혼담을 새로 받는다 */
   rerollSpouses(): Candidate[] | null {
     if (!this.spendGems(BALANCE.gems.spouseReroll)) return null;
+    track('reroll_spouse');
     delete this.state.pendingSpouses;
     return this.spouseCandidates();
   }
@@ -170,11 +273,14 @@ export class Game {
   /** 보석을 써서 자녀 후보를 다시 뽑는다 (축복 의식) */
   rerollChildren(spouse: Candidate): Candidate[] | null {
     if (!this.spendGems(BALANCE.gems.childReroll)) return null;
+    track('reroll_child');
     if (this.state.pendingChildren) delete this.state.pendingChildren[spouse.id];
     return this.childCandidates(spouse);
   }
 
   completeRetirement(spouse: Candidate, child: Candidate): number {
+    const old = this.state.hero;
+    track('retire', { gen: old.generation, age: Math.floor(old.age), best: old.maxStage });
     const fameEarned = retire(this.state, spouse, child, this.rng);
     this.sim = new BattleSim(this.state, this.rng);
     this.retiring = false;

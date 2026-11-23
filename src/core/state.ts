@@ -46,6 +46,52 @@ export interface GameState {
   pendingChildren?: Record<string, PendingCandidate[]>;
   /** 끝낸 튜토리얼 단계 id */
   tutorial?: string[];
+
+  // ── v0.2 추가 (loadGame 의 normalizeState 가 빈 값을 채운다) ──
+  /** 가보 레벨 (세대를 넘어 유지) */
+  heirlooms: Record<HeirloomKind, number>;
+  /** 유산석: 보스가 떨어뜨림, 가보 강화에 사용 (세대를 넘어 유지) */
+  legacy: number;
+  /** 벽에 막히면 이 스테이지에 머물며 골드를 모은다 */
+  stayMode: boolean;
+  progress: Progress;
+  daily: DailyState;
+  attendance: { count: number; lastDay: string | null };
+  /** 받은 업적 보상 id */
+  achievements: string[];
+  entitlements: Entitlements;
+  timeGuard: { maxSeen: number; tamperCount: number };
+}
+
+export type HeirloomKind = 'sword' | 'shield' | 'ring';
+
+/** 누적 기록 (업적·분석용) */
+export interface Progress {
+  bossKills: number;
+  deaths: number;
+  upgradesBought: number;
+  retirements: number;
+  mutations: number;
+  legendaryBorn: number;
+  adsWatched: number;
+}
+
+export interface DailyState {
+  /** 로컬 날짜 YYYY-MM-DD */
+  day: string;
+  kills: number;
+  upgrades: number;
+  bosses: number;
+  /** 받은 일일 보상 id */
+  claimed: string[];
+}
+
+/** 결제로 얻은 권리 */
+export interface Entitlements {
+  noAds: boolean;
+  /** 명문가 월정액 만료 시각 (epoch ms) */
+  monthlyUntil: number;
+  starterBought: boolean;
 }
 
 export interface PendingCandidate {
@@ -56,6 +102,29 @@ export interface PendingCandidate {
 }
 
 export const SAVE_VERSION = 1;
+
+/** 예전 저장 데이터나 새 게임에 빠진 항목을 기본값으로 채운다 */
+export function normalizeState(s: GameState, now = Date.now()): GameState {
+  s.heirlooms ??= { sword: 0, shield: 0, ring: 0 };
+  s.legacy ??= 0;
+  s.stayMode ??= false;
+  const base: Progress = {
+    bossKills: 0,
+    deaths: 0,
+    upgradesBought: 0,
+    retirements: s.lineage?.length ?? 0,
+    mutations: 0,
+    legendaryBorn: 0,
+    adsWatched: 0,
+  };
+  s.progress = Object.assign(base, s.progress ?? {});
+  s.daily ??= { day: '', kills: 0, upgrades: 0, bosses: 0, claimed: [] };
+  s.attendance ??= { count: 0, lastDay: null };
+  s.achievements ??= [];
+  s.entitlements ??= { noAds: false, monthlyUntil: 0, starterBought: false };
+  s.timeGuard ??= { maxSeen: now, tamperCount: 0 };
+  return s;
+}
 
 let idCounter = 0;
 export function newId(rng: Rng): string {
@@ -80,7 +149,7 @@ export function createNewGame(seed = Date.now(), now = Date.now()): GameState {
   // 1세대는 평범하게 시작: 특성 1개 보장 (첫 인상에서 '특성' 개념을 보여주기 위해)
   const genes = randomGenes(rng, 0.1);
   if (genes.traits.length === 0) genes.traits.push('strong');
-  return {
+  return normalizeState({
     version: SAVE_VERSION,
     houseName: rng.pick(HOUSE_NAMES),
     gold: 0,
@@ -95,5 +164,5 @@ export function createNewGame(seed = Date.now(), now = Date.now()): GameState {
     rngSeed: rng.int(1, 2 ** 31),
     totalKills: 0,
     createdAt: now,
-  };
+  } as unknown as GameState, now);
 }

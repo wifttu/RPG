@@ -283,6 +283,7 @@ export class BattleScene extends Phaser.Scene {
           break;
         case 'kill':
           this.killMonster(e.gold);
+          if (e.legacy > 0) this.time.delayedCall(350, () => this.floatText(`+유산석 ${e.legacy}`, MON_X, FEET_Y - 48, UI.gem, true));
           audio.play('kill');
           this.time.delayedCall(260, () => audio.play('coin'));
           break;

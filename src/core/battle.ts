@@ -1,5 +1,6 @@
 import { BALANCE } from '../config/balance';
 import { houseBest, isBossStage, isMarchStage, monsterAtk, monsterGold, monsterHp, monstersInStage } from './economy';
+import { legacyForBoss } from './heirloom';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 import { computeStats, type HeroStats } from './stats';
@@ -20,10 +21,14 @@ export type BattleEvent =
   | { type: 'spawn'; monster: Monster }
   | { type: 'heroAttack'; damage: number; crit: boolean; killed: boolean }
   | { type: 'monsterAttack'; damage: number }
-  | { type: 'kill'; monster: Monster; gold: number }
+  | { type: 'kill'; monster: Monster; gold: number; legacy: number }
   | { type: 'stageChange'; stage: number; boss: boolean; reason: 'clear' | 'death' | 'timeout' }
   | { type: 'heroDeath' }
-  | { type: 'respawn' };
+  | { type: 'respawn' }
+  /** 같은 곳에서 계속 실패 → 머물기 시작 */
+  | { type: 'wall'; stage: number }
+  /** 머무는 동안 충분히 강해져서 다시 도전 */
+  | { type: 'retry'; stage: number };
 
 export const BIOME_COUNT = 3;
 export const STAGES_PER_BIOME = 20;
@@ -52,6 +57,12 @@ export class BattleSim {
   private spawnTimer = 0.3;
   private respawnTimer = 0;
   private nextId = 1;
+  private time = 0;
+  private injuredUntil = 0;
+  /** 스테이지별 실패 횟수 (이번 가주 동안) */
+  private fails = new Map<number, number>();
+  /** 머물기 시작할 때의 전투력 */
+  private stayPower = 0;
 
   constructor(
     private state: GameState,
@@ -65,6 +76,27 @@ export class BattleSim {
     return this.respawnTimer > 0;
   }
 
+  get injured(): boolean {
+    return this.time < this.injuredUntil && !this.dead;
+  }
+
+  /** 막힌 스테이지 (머무는 중일 때 다음 목표) */
+  get wallStage(): number {
+    return this.state.stage + 1;
+  }
+
+  /** 전투력 지표: 초당 피해 × 체력 */
+  power(): number {
+    return this.stats.atk * this.stats.atkPerSec * this.stats.maxHp;
+  }
+
+  /** 머물기 켜고 끄기 (화면 버튼) */
+  setStay(on: boolean): void {
+    this.state.stayMode = on;
+    if (on) this.stayPower = this.power();
+    else this.fails.delete(this.state.stage + 1);
+  }
+
   refreshStats(now = Date.now()): void {
     const prevMax = this.stats?.maxHp ?? 0;
     this.stats = computeStats(this.state, now);
@@ -74,6 +106,7 @@ export class BattleSim {
 
   tick(dt: number, now = Date.now()): BattleEvent[] {
     const ev: BattleEvent[] = [];
+    this.time += dt;
     this.refreshStats(now);
 
     if (this.respawnTimer > 0) {
@@ -111,7 +144,8 @@ export class BattleSim {
     while (this.heroCd <= 0 && this.monster) {
       this.heroCd += 1 / this.stats.atkPerSec;
       const crit = this.rng.chance(this.stats.crit);
-      const damage = this.stats.atk * (crit ? BALANCE.hero.critMultiplier : 1);
+      const injury = this.injured ? BALANCE.hero.injuryAtkMul : 1;
+      const damage = this.stats.atk * injury * (crit ? BALANCE.hero.critMultiplier : 1);
       m.hp -= damage;
       const killed = m.hp <= 0;
       ev.push({ type: 'heroAttack', damage, crit, killed });
@@ -127,7 +161,9 @@ export class BattleSim {
       if (this.heroHp <= 0) {
         this.heroHp = 0;
         ev.push({ type: 'heroDeath' });
+        this.state.progress.deaths++;
         this.respawnTimer = BALANCE.hero.respawnSec;
+        this.injuredUntil = this.time + BALANCE.hero.respawnSec + BALANCE.hero.injurySec;
         this.fallBack(ev, 'death');
       }
     }
@@ -139,19 +175,46 @@ export class BattleSim {
     this.state.gold += gold;
     this.state.totalKills++;
     this.monster = null;
+    this.state.daily.kills++;
+    let legacy = 0;
+    if (m.boss) {
+      legacy = legacyForBoss(this.state.stage);
+      this.state.legacy += legacy;
+      this.state.progress.bossKills++;
+      this.state.daily.bosses++;
+    }
     const best = houseBest(this.state);
     this.spawnTimer = isMarchStage(this.state.stage, best) ? BALANCE.march.spawnGap : BALANCE.monster.spawnGap;
     this.killsInStage++;
-    ev.push({ type: 'kill', monster: m, gold });
+    ev.push({ type: 'kill', monster: m, gold, legacy });
     if (this.killsInStage >= monstersInStage(this.state.stage, best)) {
-      this.setStage(this.state.stage + 1, ev, 'clear');
       // 스테이지 클리어 보상: 체력 회복
       this.heroHp = this.stats.maxHp;
+      if (this.state.stayMode) {
+        // 머무는 중: 충분히 강해졌으면 다시 도전, 아니면 같은 스테이지 반복
+        if (this.power() >= this.stayPower * BALANCE.wall.retryPowerGain) {
+          this.state.stayMode = false;
+          ev.push({ type: 'retry', stage: this.state.stage + 1 });
+          this.setStage(this.state.stage + 1, ev, 'clear');
+        } else {
+          this.killsInStage = 0;
+        }
+      } else {
+        this.setStage(this.state.stage + 1, ev, 'clear');
+      }
     }
   }
 
   private fallBack(ev: BattleEvent[], reason: 'death' | 'timeout'): void {
     this.monster = null;
+    const failed = this.state.stage;
+    const n = (this.fails.get(failed) ?? 0) + 1;
+    this.fails.set(failed, n);
+    if (n >= BALANCE.wall.failsToStay && !this.state.stayMode) {
+      this.state.stayMode = true;
+      this.stayPower = this.power();
+      ev.push({ type: 'wall', stage: failed });
+    }
     this.spawnTimer = BALANCE.monster.spawnGap + (reason === 'death' ? BALANCE.hero.respawnSec : 0);
     this.setStage(Math.max(1, this.state.stage - 1), ev, reason);
   }
