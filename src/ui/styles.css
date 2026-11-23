@@ -363,8 +363,8 @@ canvas {
   overflow: hidden;
 }
 .portrait img {
-  width: 64px;
-  height: 64px;
+  height: 66px;
+  width: auto;
 }
 .hero-info {
   flex: 1;
@@ -604,7 +604,8 @@ canvas {
   place-items: center;
 }
 .gen .thumb img {
-  width: 48px;
+  height: 46px;
+  width: auto;
 }
 .gen .info {
   flex: 1;
@@ -750,7 +751,8 @@ canvas {
   place-items: center;
 }
 .cand .thumb img {
-  width: 56px;
+  height: 54px;
+  width: auto;
 }
 .cand .info {
   flex: 1;
@@ -772,7 +774,8 @@ canvas {
   margin-bottom: 10px;
 }
 .parents img {
-  width: 48px;
+  height: 60px;
+  width: auto;
 }
 .parents .heart {
   color: var(--accent);

@@ -1,4 +1,4 @@
-import { heroCanvas, geneLookKey } from '../art/heroSprite';
+import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
@@ -22,16 +22,7 @@ function el(html: string): HTMLElement {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-const spriteUrlCache = new Map<string, string>();
-function spriteUrl(genes: Genes): string {
-  const k = geneLookKey(genes);
-  let u = spriteUrlCache.get(k);
-  if (!u) {
-    u = heroCanvas(genes).toDataURL();
-    spriteUrlCache.set(k, u);
-  }
-  return u;
-}
+const spriteUrl = (genes: Genes) => heroPortraitUrl(genes);
 
 function traitChips(ids: readonly string[], mutation?: string | null): string {
   if (!ids.length) return '<span class="chip common">특성 없음</span>';
@@ -662,7 +653,7 @@ export class UI {
       root.innerHTML = `
         ${steps(3)}
         <h2>${s.hero.generation}대 가주 즉위</h2>
-        <div class="parents"><img src="${spriteUrl(s.hero.genes)}" alt="" style="width:72px" /></div>
+        <div class="parents"><img src="${spriteUrl(s.hero.genes)}" alt="" style="height:80px" /></div>
         <p class="lead"><b>${esc(s.hero.name)}</b>이(가) ${esc(s.houseName)} 가문을 이어받았어요</p>
         <div class="chips" style="justify-content:center">${traitChips(s.hero.genes.traits, child.mutation)}</div>
         <div class="big-num">${iconImg('fame')} <b style="color:var(--fame)">명성 +${fmt(gained)}</b></div>

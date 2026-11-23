@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { heroCanvas, geneLookKey, swordCanvas, SWORD_ORIGIN } from '../art/heroSprite';
+import { ANIMS, FEET_Y as SHEET_FEET, FRAME, heroSheetCanvas } from '../art/heroSheet';
 import { coinCanvas, monsterCanvases } from '../art/monsters';
 import { OUTLINE, UI } from '../art/palette';
 import { BIOMES, cloudCanvas, farLayer, groundLayer, midLayer, paintSky, skyAt, toTint } from '../art/world';
@@ -13,7 +13,7 @@ export const VIEW_W = 160;
 export const VIEW_H = 144;
 const GROUND_Y = 108;
 const HERO_X = 50;
-const MON_X = 102;
+const MON_X = 98;
 const FEET_Y = GROUND_Y + 5;
 const FONT = 'Galmuri11, monospace';
 
@@ -29,8 +29,9 @@ export class BattleScene extends Phaser.Scene {
   private mid!: Phaser.GameObjects.TileSprite;
   private ground!: Phaser.GameObjects.TileSprite;
   private hero!: Phaser.GameObjects.Container;
-  private heroSprite!: Phaser.GameObjects.Image;
-  private sword!: Phaser.GameObjects.Image;
+  private heroSprite!: Phaser.GameObjects.Sprite;
+  private attacking = false;
+  private heroAnimBase = '';
   private monster: Phaser.GameObjects.Container | null = null;
   private monsterSprite: Phaser.GameObjects.Sprite | null = null;
   private monsterData: Monster | null = null;
@@ -40,7 +41,6 @@ export class BattleScene extends Phaser.Scene {
   private biome = -1;
   private skyTimer = 0;
   private lastSkyT = -1;
-  private bobT = 0;
   private heroDown = false;
 
   constructor(core: Game) {
@@ -65,9 +65,15 @@ export class BattleScene extends Phaser.Scene {
 
     // 영웅: 그림자 + 몸 + 검 (검은 손 위치에서 회전)
     const shadow = this.add.ellipse(0, 0, 22, 5, 0x000000, 0.28);
-    this.heroSprite = this.add.image(0, 0, this.heroKey()).setOrigin(0.5, 1);
-    this.sword = this.add.image(5, -10, 'sword').setOrigin(SWORD_ORIGIN.x, SWORD_ORIGIN.y).setRotation(0.35);
-    this.hero = this.add.container(HERO_X, FEET_Y, [shadow, this.heroSprite, this.sword]);
+    this.heroSprite = this.add.sprite(0, 0, this.heroKey(), 0).setOrigin(0.5, SHEET_FEET / FRAME);
+    this.heroSprite.on('animationcomplete', (a: Phaser.Animations.Animation) => {
+      if (a.key.endsWith('-slash')) {
+        this.attacking = false;
+        this.playHero(this.isWalking() ? 'walk' : 'idle');
+      }
+    });
+    this.hero = this.add.container(HERO_X, FEET_Y, [shadow, this.heroSprite]);
+    this.playHero('idle');
 
     this.bars = this.add.graphics();
 
@@ -95,16 +101,40 @@ export class BattleScene extends Phaser.Scene {
     this.core.on('newGeneration', () => this.onNewGeneration());
   }
 
+  /** 유전자(머리색·피부)별로 색을 바꾼 시트를 텍스처로 등록하고 애니메이션을 만든다 */
   private heroKey(): string {
     const genes = this.core.state.hero.genes;
-    const key = `hero-${geneLookKey(genes)}`;
-    if (!this.textures.exists(key)) this.textures.addCanvas(key, heroCanvas(genes));
+    const key = `heroB-${genes.hairColor}-${genes.skinTone}`;
+    if (!this.textures.exists(key)) {
+      const canvas = heroSheetCanvas(genes);
+      const tex = this.textures.addCanvas(key, canvas)!;
+      const n = canvas.width / FRAME;
+      for (let i = 0; i < n; i++) tex.add(i, 0, i * FRAME, 0, FRAME, FRAME);
+      for (const [name, a] of Object.entries(ANIMS)) {
+        this.anims.create({
+          key: `${key}-${name}`,
+          frames: this.anims.generateFrameNumbers(key, { start: a.start, end: a.end }),
+          frameRate: a.frameRate,
+          repeat: a.repeat,
+        });
+      }
+    }
+    this.heroAnimBase = key;
     return key;
+  }
+
+  private playHero(name: keyof typeof ANIMS, opts: { duration?: number } = {}): void {
+    const key = `${this.heroAnimBase}-${name}`;
+    if (name !== 'slash' && this.heroSprite.anims.currentAnim?.key === key) return;
+    this.heroSprite.play({ key, ...(opts.duration ? { duration: opts.duration } : {}) });
+  }
+
+  private isWalking(): boolean {
+    return !this.monster && !this.core.sim.dead && !this.core.retiring;
   }
 
   private makeTextures(): void {
     const t = this.textures;
-    t.addCanvas('sword', swordCanvas());
     t.addCanvas('coin', coinCanvas());
     BIOMES.forEach((b, i) => {
       t.addCanvas(`far-${i}`, farLayer(b));
@@ -176,7 +206,6 @@ export class BattleScene extends Phaser.Scene {
     for (const c of this.clouds) c.setTint(toTint(mix(ambient, '#ffffff', 0.2)));
     const charTint = toTint(mix(ambient, '#ffffff', 0.55));
     this.heroSprite.setTint(charTint);
-    this.sword.setTint(charTint);
     this.monsterSprite?.setTint(charTint);
 
     // 해/달: 왼쪽에서 떠서 오른쪽으로 진다
@@ -195,7 +224,8 @@ export class BattleScene extends Phaser.Scene {
     const dt = deltaMs / 1000;
     this.core.update(dt);
 
-    const walking = !this.monster && !this.core.sim.dead && !this.core.retiring;
+    const walking = this.isWalking();
+    if (!this.attacking && !this.heroDown) this.playHero(walking ? 'walk' : 'idle');
     const speed = walking ? 34 : 0;
     this.far.tilePositionX += speed * 0.15 * dt;
     this.mid.tilePositionX += speed * 0.45 * dt;
@@ -206,8 +236,6 @@ export class BattleScene extends Phaser.Scene {
     }
 
     // 숨쉬기 / 걷기 흔들림
-    this.bobT += dt * (walking ? 10 : 3);
-    if (!this.heroDown) this.heroSprite.y = walking ? -Math.abs(Math.sin(this.bobT)) * 1.5 : Math.round(Math.sin(this.bobT) * 0.6);
     if (walking && Math.random() < dt * 8) this.dust.emitParticleAt(HERO_X - 6, FEET_Y - 1, 1);
 
     this.skyTimer += dt;
@@ -228,7 +256,7 @@ export class BattleScene extends Phaser.Scene {
       g.fillStyle(0xffffff, 0.35).fillRect(x, y, Math.max(0, Math.round(w * ratio)), 1);
     };
     const sim = this.core.sim;
-    if (!this.heroDown) bar(HERO_X - 12, FEET_Y - 40, 24, sim.heroHp / sim.stats.maxHp, 0x5fd16a);
+    if (!this.heroDown) bar(HERO_X - 12, FEET_Y - 58, 24, sim.heroHp / sim.stats.maxHp, 0x5fd16a);
     if (this.monster && this.monsterData) {
       const m = this.monsterData;
       const h = this.monsterSprite!.displayHeight;
@@ -299,12 +327,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private heroSwing(damage: number, crit: boolean): void {
-    this.tweens.killTweensOf(this.sword);
-    this.sword.setRotation(-0.9);
-    this.tweens.add({ targets: this.sword, rotation: 1.9, duration: 90, ease: 'Quad.out', yoyo: false, onComplete: () => {
-      this.tweens.add({ targets: this.sword, rotation: 0.35, duration: 160, ease: 'Sine.out' });
-    } });
-    this.tweens.add({ targets: this.heroSprite, x: 4, duration: 60, yoyo: true, ease: 'Quad.out' });
+    // 공격 속도가 빨라지면 애니메이션도 빨라진다 (다음 공격 전에 끝나도록)
+    const interval = 1000 / this.core.stats.atkPerSec / Math.max(1, this.core.timeScale);
+    this.attacking = true;
+    this.playHero('slash', { duration: Math.min(420, interval * 0.9) });
+    this.tweens.add({ targets: this.heroSprite, x: 3, duration: 60, yoyo: true, ease: 'Quad.out' });
 
     if (this.monster && this.monsterSprite) {
       const spr = this.monsterSprite;
@@ -356,7 +383,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.monster) this.tweens.add({ targets: this.monster, x: this.monster.x - 8, duration: 80, yoyo: true, ease: 'Quad.out' });
     this.heroSprite.setTint(0xff6a6a);
     this.time.delayedCall(90, () => this.heroSprite.setTint(this.charTint()));
-    this.floatText(`-${fmt(damage)}`, HERO_X, FEET_Y - 34, UI.hurt, false);
+    this.floatText(`-${fmt(damage)}`, HERO_X, FEET_Y - 46, UI.hurt, false);
   }
 
   private heroFall(): void {
@@ -378,7 +405,10 @@ export class BattleScene extends Phaser.Scene {
 
   private onNewGeneration(): void {
     this.clearMonster();
-    this.heroSprite.setTexture(this.heroKey());
+    this.heroSprite.setTexture(this.heroKey(), 0);
+    this.attacking = false;
+    this.heroSprite.anims.stop();
+    this.playHero('idle');
     this.applyBiome(biomeOf(this.core.state.stage));
     this.updateSky(true);
     this.heroSprite.setAlpha(0);

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import galmuri11 from 'galmuri/dist/Galmuri11.woff2?url';
 import galmuri11b from 'galmuri/dist/Galmuri11-Bold.woff2?url';
 import galmuri9 from 'galmuri/dist/Galmuri9.woff2?url';
+import { loadHeroSheet } from './art/heroSheet';
 import { Game } from './core/game';
 import { clearSave } from './core/save';
 import { BattleScene, VIEW_H, VIEW_W } from './scenes/BattleScene';
@@ -34,7 +35,7 @@ async function boot(): Promise<void> {
   }
   if (params.has('reset')) clearSave();
 
-  await loadFonts();
+  await Promise.all([loadFonts(), loadHeroSheet()]);
 
   const core = new Game();
   const speed = Number(params.get('speed'));
