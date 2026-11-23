@@ -1,10 +1,12 @@
-import sheetUrl from '../assets/hero/hero_b.png';
+import sheetB from '../assets/hero/hero_b.png';
+import sheetLong from '../assets/hero/hero_long.png';
+import sheetPony from '../assets/hero/hero_pony.png';
 import type { Genes } from '../core/genetics';
 import { HAIR, SKIN, hexToRgb } from './palette';
 
 /**
- * PixelLab으로 만든 영웅 B의 스프라이트 시트 (76x76 칸 19프레임).
- * 유전자에 따라 머리색·피부색을 바꿔 칠해서 자녀가 부모를 닮게 한다.
+ * PixelLab으로 만든 영웅 스프라이트 시트 3종 (76x76 칸 19프레임, 머리 모양만 다름).
+ * 유전자의 머리 모양 → 시트 선택, 머리색·피부색 → 바꿔 칠하기. 그래서 자녀가 부모를 닮는다.
  */
 export const FRAME = 76;
 export const FEET_Y = 61; // 칸 안에서 발바닥 위치
@@ -15,25 +17,60 @@ export const ANIMS = {
 } as const;
 const FRAME_COUNT = 19;
 
-/** 원본 그림의 머리카락 색 (어두운 보라빛 갈색) */
-const SRC_HAIR = ['150f11', '1d161b', '291619', '2a1925', '2f1d28', '3b2933', '422735', '442d3a'];
-/** 원본 그림의 피부색 */
-const SRC_SKIN = ['d58072', 'ea9a8b', 'e7b6ae', 'f5b3a0', 'fbc6b8'];
-/** 머리카락은 머리 부분에만 칠한다 (같은 색이 옷 그림자에도 쓰여서) */
-const HEAD_ROWS = 24;
+interface SheetDef {
+  url: string;
+  /** 원본 그림의 머리카락 색 (첫 7줄에서 자동 추출 후 외곽선 색 제외) */
+  hair: string[];
+  /** 원본 그림의 피부색 */
+  skin: string[];
+  /** 머리카락을 칠할 범위 (머리 꼭대기부터 몇 줄). 같은 색이 옷 그림자에도 쓰여서 범위를 제한한다 */
+  headRows: number;
+}
 
-let base: HTMLImageElement | null = null;
+/** 순서 = genes.hairStyle (짧은 머리, 긴 머리, 포니테일) */
+const SHEETS: SheetDef[] = [
+  {
+    url: sheetB,
+    hair: ['150f11', '1d161b', '291619', '2a1925', '2f1d28', '3b2933', '422735', '442d3a'],
+    skin: ['d58072', 'ca827d', 'ea9a8b', 'e6a89c', 'e7b6ae', 'f5b3a0', 'fbc6b8'],
+    headRows: 24,
+  },
+  {
+    url: sheetLong,
+    hair: ['2d1414', '322428', '472121', '58192b', '633133'],
+    skin: ['c0645b', 'c3766e', 'df7f6d', 'dd9186', 'e1a397', 'eaaf9d', 'eea795', 'f7c1b3', 'fbd5c7'],
+    headRows: 38,
+  },
+  {
+    url: sheetPony,
+    hair: ['361316', '491621', '4c1c1f', '551a24', '602c2d', '710919', '723939', '7b202f'],
+    skin: ['d3716b', 'e3756e', 'ec6f68', 'ed9b91', 'f2a89d', 'f9c5b9'],
+    headRows: 32,
+  },
+];
+export const HERO_STYLE_COUNT = SHEETS.length;
+
+const bases: HTMLImageElement[] = [];
 
 export function loadHeroSheet(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      base = img;
-      resolve();
-    };
-    img.onerror = reject;
-    img.src = sheetUrl;
-  });
+  return Promise.all(
+    SHEETS.map(
+      (def, i) =>
+        new Promise<void>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            bases[i] = img;
+            resolve();
+          };
+          img.onerror = reject;
+          img.src = def.url;
+        }),
+    ),
+  ).then(() => undefined);
+}
+
+export function heroLookKey(genes: Genes): string {
+  return `${genes.hairStyle % SHEETS.length}-${genes.hairColor}-${genes.skinTone}`;
 }
 
 const lum = (hex: string) => {
@@ -68,9 +105,12 @@ const cache = new Map<string, HTMLCanvasElement>();
 
 /** 유전자에 맞게 색을 바꾼 전체 시트 */
 export function heroSheetCanvas(genes: Genes): HTMLCanvasElement {
-  const key = `${genes.hairColor}-${genes.skinTone}`;
+  const key = heroLookKey(genes);
   const hit = cache.get(key);
   if (hit) return hit;
+  const style = genes.hairStyle % SHEETS.length;
+  const def = SHEETS[style];
+  const base = bases[style];
   if (!base) throw new Error('hero sheet not loaded');
 
   const c = document.createElement('canvas');
@@ -82,9 +122,9 @@ export function heroSheetCanvas(genes: Genes): HTMLCanvasElement {
   const d = img.data;
 
   const hr = HAIR[genes.hairColor % HAIR.length].ramp;
-  const hairMap = rampMap(SRC_HAIR, [darker(hr[0], 0.6), hr[0], hr[1], hr[2]]);
+  const hairMap = rampMap(def.hair, [darker(hr[0], 0.6), hr[0], hr[1], hr[2]]);
   const sk = SKIN[genes.skinTone % SKIN.length];
-  const skinMap = rampMap(SRC_SKIN, [darker(sk[0], 0.85), sk[0], sk[1], sk[2]]);
+  const skinMap = rampMap(def.skin, [darker(sk[0], 0.85), sk[0], sk[1], sk[2]]);
 
   for (let f = 0; f < FRAME_COUNT; f++) {
     // 프레임마다 머리 꼭대기를 찾아서 머리 영역만 머리색을 바꾼다
@@ -100,7 +140,7 @@ export function heroSheetCanvas(genes: Genes): HTMLCanvasElement {
         const p = (y * c.width + f * FRAME + x) * 4;
         if (d[p + 3] === 0) continue;
         const rgb = (d[p] << 16) | (d[p + 1] << 8) | d[p + 2];
-        const to = (y - top <= HEAD_ROWS && hairMap.get(rgb)) || skinMap.get(rgb);
+        const to = (y - top <= def.headRows && hairMap.get(rgb)) || skinMap.get(rgb);
         if (to) [d[p], d[p + 1], d[p + 2]] = to;
       }
   }
@@ -113,7 +153,7 @@ const portraitCache = new Map<string, string>();
 
 /** UI용 초상화 (대기 첫 프레임, 여백을 잘라 낸 이미지 URL) */
 export function heroPortraitUrl(genes: Genes): string {
-  const key = `${genes.hairColor}-${genes.skinTone}`;
+  const key = heroLookKey(genes);
   const hit = portraitCache.get(key);
   if (hit) return hit;
   const sheet = heroSheetCanvas(genes);

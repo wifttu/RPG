@@ -22,3 +22,26 @@
 | golem.png | 96 → 64 | 15 | massive stone golem boss with glowing cyan cracks and glowing eyes, heavy rock fists, facing left, game boss sprite (`tools/pixelize.py clean --width 64 --no-palette` 로 축소) |
 
 지역별 색은 `src/art/monsterArt.ts` 의 색상 회전(hue rotate)으로 만든다.
+
+## 배경 (PixelLab `create-image-pixflux`, 192x64, no_background, 1장당 1회)
+
+먼 산(far)은 `detail=low detail, shading=basic shading, outline=lineless`, 중경(mid)은 기본(medium). 결과를 좌우 거울 복사로 이어 붙여 384x64 반복 타일로 만듦.
+far2의 해, mid1의 구름 조각은 지웠다 (게임이 해·구름을 따로 그림).
+
+| 파일 | 시드 | 프롬프트 |
+|---|---|---|
+| far0 | 21 | distant blue mountain range silhouettes with snowy peaks, soft atmospheric blue, wide panorama, no sky |
+| mid0 | 22 | rolling green grassy hills with round leafy trees and bushes, bright daytime meadow, wide panorama, empty sky |
+| far1 | 23 | distant misty purple mountain range silhouettes, foggy atmosphere, wide panorama, no sky |
+| mid1 | 24 | dense dark green pine forest, tall fir trees of different heights, mysterious woods, wide panorama, empty sky |
+| far2 | 25 | distant dusty rose desert cliffs and flat-topped mesas, hazy warm atmosphere, wide panorama, no sky |
+| mid2 | 26 | ancient ruined sandstone temple, broken stone pillars and crumbling arches, overgrown with a few dry shrubs, wide panorama, empty sky |
+
+(모든 프롬프트 앞에 "side-scrolling game background layer: " 를 붙임)
+
+## 영웅 머리 모양 추가 (시드 202, 영웅 B와 같은 옷 설명에서 머리만 바꿈)
+
+| 파일 | 머리 설명 | 동작 |
+|---|---|---|
+| hero_long.png | long dark brown hair flowing down the back past the shoulders | breathing-idle, walking, v3 slash (B와 같은 설정) |
+| hero_pony.png | dark brown hair tied in a high ponytail | 〃 |

@@ -1,9 +1,18 @@
 import Phaser from 'phaser';
-import { ANIMS, FEET_Y as SHEET_FEET, FRAME, heroSheetCanvas } from '../art/heroSheet';
+import { ANIMS, FEET_Y as SHEET_FEET, FRAME, heroLookKey, heroSheetCanvas } from '../art/heroSheet';
 import { monsterArtCanvas } from '../art/monsterArt';
 import { coinCanvas } from '../art/monsters';
 import { OUTLINE, UI } from '../art/palette';
-import { BIOMES, cloudCanvas, farLayer, groundLayer, midLayer, paintSky, skyAt, toTint } from '../art/world';
+import { BIOMES, cloudCanvas, groundLayer, paintSky, skyAt, toTint } from '../art/world';
+import far0 from '../assets/bg/far0.png';
+import far1 from '../assets/bg/far1.png';
+import far2 from '../assets/bg/far2.png';
+import mid0 from '../assets/bg/mid0.png';
+import mid1 from '../assets/bg/mid1.png';
+import mid2 from '../assets/bg/mid2.png';
+
+/** PixelLab으로 만든 배경 (지역별 먼 산 + 중경). 좌우 거울 복사로 끊김 없이 이어진다. */
+const BG_URLS = { far: [far0, far1, far2], mid: [mid0, mid1, mid2] };
 import { BALANCE } from '../config/balance';
 import { biomeOf, type BattleEvent, type Monster, type MonsterKind } from '../core/battle';
 import type { Game } from '../core/game';
@@ -49,6 +58,11 @@ export class BattleScene extends Phaser.Scene {
     this.core = core;
   }
 
+  preload(): void {
+    BG_URLS.far.forEach((u, i) => this.load.image(`far-${i}`, u));
+    BG_URLS.mid.forEach((u, i) => this.load.image(`mid-${i}`, u));
+  }
+
   create(): void {
     this.makeTextures();
 
@@ -60,8 +74,8 @@ export class BattleScene extends Phaser.Scene {
     for (let i = 0; i < 3; i++) {
       this.clouds.push(this.add.image(i * 64 + 12, 10 + i * 11, `cloud-${i}`).setOrigin(0).setAlpha(0.9));
     }
-    this.far = this.add.tileSprite(0, GROUND_Y - 58, VIEW_W, 70, 'far-0').setOrigin(0);
-    this.mid = this.add.tileSprite(0, GROUND_Y - 62, VIEW_W, 70, 'mid-0').setOrigin(0);
+    this.far = this.add.tileSprite(0, GROUND_Y - 72, VIEW_W, 64, 'far-0').setOrigin(0);
+    this.mid = this.add.tileSprite(0, GROUND_Y - 60, VIEW_W, 64, 'mid-0').setOrigin(0);
     this.ground = this.add.tileSprite(0, GROUND_Y, VIEW_W, VIEW_H - GROUND_Y, 'ground-0').setOrigin(0);
 
     // 영웅: 그림자 + 몸 + 검 (검은 손 위치에서 회전)
@@ -105,7 +119,7 @@ export class BattleScene extends Phaser.Scene {
   /** 유전자(머리색·피부)별로 색을 바꾼 시트를 텍스처로 등록하고 애니메이션을 만든다 */
   private heroKey(): string {
     const genes = this.core.state.hero.genes;
-    const key = `heroB-${genes.hairColor}-${genes.skinTone}`;
+    const key = `hero-${heroLookKey(genes)}`;
     if (!this.textures.exists(key)) {
       const canvas = heroSheetCanvas(genes);
       const tex = this.textures.addCanvas(key, canvas)!;
@@ -138,8 +152,6 @@ export class BattleScene extends Phaser.Scene {
     const t = this.textures;
     t.addCanvas('coin', coinCanvas());
     BIOMES.forEach((b, i) => {
-      t.addCanvas(`far-${i}`, farLayer(b));
-      t.addCanvas(`mid-${i}`, midLayer(b));
       t.addCanvas(`ground-${i}`, groundLayer(b));
       for (const k of MONSTER_KINDS) t.addCanvas(`mon-${k}-${i}`, monsterArtCanvas(k, i));
     });

@@ -5,7 +5,8 @@ import { MUTATION_RARITY_TABLE, TRAITS, getTrait, traitsOfRarity, type Rarity } 
 export const HAIR_COLOR_COUNT = 8;
 export const SKIN_TONE_COUNT = 5;
 export const EYE_COLOR_COUNT = 5;
-export const HAIR_STYLE_COUNT = 4;
+/** 머리 모양 = 영웅 시트 종류 수 (src/art/heroSheet.ts 의 SHEETS) */
+export const HAIR_STYLE_COUNT = 3;
 
 /** 영웅 한 명의 유전 정보. 능력치 잠재력 + 외형 + 특성. */
 export interface Genes {
