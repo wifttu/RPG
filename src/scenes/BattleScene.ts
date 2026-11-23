@@ -23,6 +23,7 @@ import type { Game } from '../core/game';
 import { mix } from '../art/palette';
 import { fmt } from '../ui/format';
 import { audio } from '../audio/audio';
+import { heroClass } from '../core/gear';
 
 export const VIEW_W = 160;
 export const VIEW_H = 144;
@@ -168,6 +169,32 @@ export class BattleScene extends Phaser.Scene {
     pctx.fillStyle = '#fff';
     pctx.fillRect(0, 0, 2, 2);
     t.addCanvas('px', px);
+
+    // 화살 (12x3) 과 마법 구슬 (7x7)
+    const arrow = document.createElement('canvas');
+    arrow.width = 12;
+    arrow.height = 3;
+    const ac = arrow.getContext('2d')!;
+    ac.fillStyle = '#86573a';
+    ac.fillRect(2, 1, 8, 1);
+    ac.fillStyle = '#e2e7f6';
+    ac.fillRect(10, 0, 1, 3);
+    ac.fillRect(11, 1, 1, 1);
+    ac.fillStyle = '#e8687c';
+    ac.fillRect(0, 0, 2, 1);
+    ac.fillRect(0, 2, 2, 1);
+    t.addCanvas('arrow', arrow);
+    const orb = document.createElement('canvas');
+    orb.width = orb.height = 7;
+    const oc = orb.getContext('2d')!;
+    oc.fillStyle = '#7a4ae0';
+    oc.fillRect(1, 2, 5, 3);
+    oc.fillRect(2, 1, 3, 5);
+    oc.fillStyle = '#c9a8ff';
+    oc.fillRect(2, 2, 3, 3);
+    oc.fillStyle = '#ffffff';
+    oc.fillRect(3, 3, 1, 1);
+    t.addCanvas('orb', orb);
 
     const st = document.createElement('canvas');
     st.width = VIEW_W;
@@ -352,9 +379,20 @@ export class BattleScene extends Phaser.Scene {
   private heroSwing(damage: number, crit: boolean): void {
     // 공격 속도가 빨라지면 애니메이션도 빨라진다 (다음 공격 전에 끝나도록)
     const interval = 1000 / this.core.stats.atkPerSec / Math.max(1, this.core.timeScale);
-    this.attacking = true;
-    this.playHero('slash', { duration: Math.min(420, interval * 0.9) });
-    this.tweens.add({ targets: this.heroSprite, x: 3, duration: 60, yoyo: true, ease: 'Quad.out' });
+    const cls = heroClass(this.core.state);
+    if (cls.ranged) {
+      // 궁수·마법사: 베기 대신 반동 + 화살/마법 구슬이 날아간다
+      this.tweens.add({ targets: this.heroSprite, x: -2, duration: 60, yoyo: true, ease: 'Quad.out' });
+      if (cls.kind === 'staff') {
+        this.heroSprite.setTint(0xc9a8ff);
+        this.time.delayedCall(80, () => this.heroSprite.setTint(this.charTint()));
+      }
+      if (this.monster && this.monsterSprite) this.shoot(cls.kind === 'bow' ? 'arrow' : 'orb', crit);
+    } else {
+      this.attacking = true;
+      this.playHero('slash', { duration: Math.min(420, interval * 0.9) });
+      this.tweens.add({ targets: this.heroSprite, x: 3, duration: 60, yoyo: true, ease: 'Quad.out' });
+    }
 
     if (this.monster && this.monsterSprite) {
       const spr = this.monsterSprite;
@@ -368,6 +406,31 @@ export class BattleScene extends Phaser.Scene {
       this.floatText(crit ? `${fmt(damage)}!` : fmt(damage), this.monster.x, hy - 8, crit ? UI.crit : UI.text, crit);
       if (crit) this.cameras.main.shake(80, 0.004);
     }
+  }
+
+  private shoot(tex: 'arrow' | 'orb', crit: boolean): void {
+    if (!this.monster || !this.monsterSprite) return;
+    const sx = HERO_X + 10;
+    const sy = FEET_Y - 22;
+    const tx = this.monster.x - 6;
+    const ty = FEET_Y - this.monsterSprite.displayHeight / 2 + (this.monsterSprite.y || 0);
+    const p = this.add.image(sx, sy, tex).setScale(crit ? 1.5 : 1);
+    p.setRotation(Math.atan2(ty - sy, tx - sx));
+    this.tweens.add({
+      targets: p,
+      x: tx,
+      y: ty,
+      duration: tex === 'arrow' ? 90 : 140,
+      ease: tex === 'arrow' ? 'Linear' : 'Sine.in',
+      onComplete: () => {
+        if (tex === 'orb') {
+          this.sparks.setParticleTint(0xc9a8ff);
+          this.sparks.explode(crit ? 14 : 6, tx, ty);
+        }
+        p.destroy();
+      },
+    });
+    if (tex === 'orb') this.tweens.add({ targets: p, angle: 360, duration: 140 });
   }
 
   private killMonster(gold: number): void {

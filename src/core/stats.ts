@@ -1,5 +1,6 @@
 import { BALANCE, type UpgradeKind } from '../config/balance';
 import type { GameState, Hero } from './state';
+import { gearEffects } from './gear';
 import { heirloomMultiplier } from './heirloom';
 import { sumEffects } from './traits';
 
@@ -8,6 +9,8 @@ export interface HeroStats {
   maxHp: number;
   atkPerSec: number;
   crit: number;
+  /** 치명타 피해 배율 (마법사는 2.5) */
+  critMul: number;
   goldMul: number;
   fameMul: number;
   lifespan: number;
@@ -76,13 +79,15 @@ export function computeStats(state: GameState, now = Date.now()): HeroStats {
   const fameMul = fameMultiplier(state.fame);
   const boost = now < state.boostUntil ? BALANCE.ads.goldBoostMul : 1;
   const hl = state.heirlooms ?? { sword: 0, shield: 0, ring: 0 };
+  const gear = gearEffects(state);
 
   return {
-    atk: (h.baseAtk + genes.str * h.atkPerStr) * upgradeMultiplier('atk', state.upgrades.atk) * (1 + e.atkMul) * fameMul * ageMul * heirloomMultiplier('sword', hl.sword),
-    maxHp: (h.baseHp + genes.vit * h.hpPerVit) * upgradeMultiplier('hp', state.upgrades.hp) * (1 + e.hpMul) * fameMul * ageMul * heirloomMultiplier('shield', hl.shield),
-    atkPerSec: (h.baseAtkSpeed + genes.agi * h.atkSpeedPerAgi) * upgradeMultiplier('spd', state.upgrades.spd) * (1 + e.spdMul),
-    crit: Math.min(0.75, h.baseCrit + genes.agi * h.critPerAgi + e.critAdd),
-    goldMul: (1 + e.goldMul) * fameMul * boost * heirloomMultiplier('ring', hl.ring),
+    atk: (h.baseAtk + genes.str * h.atkPerStr) * upgradeMultiplier('atk', state.upgrades.atk) * (1 + e.atkMul) * fameMul * ageMul * heirloomMultiplier('sword', hl.sword) * gear.atkMul,
+    maxHp: (h.baseHp + genes.vit * h.hpPerVit) * upgradeMultiplier('hp', state.upgrades.hp) * (1 + e.hpMul) * fameMul * ageMul * heirloomMultiplier('shield', hl.shield) * gear.hpMul,
+    atkPerSec: (h.baseAtkSpeed + genes.agi * h.atkSpeedPerAgi) * upgradeMultiplier('spd', state.upgrades.spd) * (1 + e.spdMul) * gear.spdMul,
+    crit: Math.min(0.75, h.baseCrit + genes.agi * h.critPerAgi + e.critAdd + gear.critAdd),
+    critMul: gear.critMul,
+    goldMul: (1 + e.goldMul) * fameMul * boost * heirloomMultiplier('ring', hl.ring) * gear.goldMul,
     fameMul: 1 + e.fameMul,
     lifespan,
     ageMul,
@@ -91,5 +96,5 @@ export function computeStats(state: GameState, now = Date.now()): HeroStats {
 
 /** 기대 DPS (치명타 포함) */
 export function expectedDps(s: HeroStats): number {
-  return s.atk * s.atkPerSec * (1 + s.crit * (BALANCE.hero.critMultiplier - 1));
+  return s.atk * s.atkPerSec * (1 + s.crit * (s.critMul - 1));
 }

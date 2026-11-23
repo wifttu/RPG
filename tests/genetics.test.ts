@@ -13,6 +13,7 @@ const base = (traits: string[]): Genes => ({
   eyeColor: 3,
   hairStyle: 0,
   traits,
+  talent: 'sword',
 });
 
 describe('genetics', () => {

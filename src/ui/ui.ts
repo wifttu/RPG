@@ -21,8 +21,12 @@ import { createNewGame } from '../core/state';
 import { nativeAds } from '../platform/ads';
 import type { HeirloomKind } from '../core/state';
 import { questBadge, questHtml, refreshQuest } from './questPanel';
+import { bindGear, gearHtml, refreshGear } from './gearPanel';
+import { itemIconUrl } from '../art/itemIcons';
+import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, heroClass, type Slot } from '../core/gear';
+import { TALENT_LABEL } from '../core/genetics';
 
-type Tab = 'grow' | 'family' | 'quest' | 'shop';
+type Tab = 'grow' | 'gear' | 'family' | 'quest' | 'shop';
 
 /** 출시 빌드(npm run build:release)에서는 개발용 버튼을 숨긴다 */
 const RELEASE = import.meta.env.VITE_RELEASE === 'true';
@@ -50,6 +54,10 @@ function traitChips(ids: readonly string[], mutation?: string | null): string {
     .join('');
 }
 
+function talentChip(g: Genes): string {
+  return `<span class="chip talent">재능 · ${TALENT_LABEL[g.talent ?? 'sword']}</span>`;
+}
+
 function geneBars(g: Genes): string {
   const row = (label: string, v: number, color: string) =>
     `<span>${label}</span><div class="gbar"><div style="width:${v}%;background:${color}"></div></div><span>${v}</span>`;
@@ -69,6 +77,7 @@ export class UI {
   private modalQueue: (() => void)[] = [];
   private lastGen = -1;
   private tutorial: Tutorial | null = null;
+  private gearFilter: Slot = 'weapon';
 
   constructor(private core: Game) {}
 
@@ -187,7 +196,7 @@ export class UI {
     const now = Date.now();
 
     this.set('title', `${state.houseName} 가문 · ${hero.generation}대`);
-    this.set('heroLine', `가주 ${hero.name} · ${lifeStage(hero.age, stats.lifespan)}`);
+    this.set('heroLine', `가주 ${hero.name} · ${heroClass(state).name} · ${lifeStage(hero.age, stats.lifespan)}`);
     this.set('gold', fmt(state.gold));
     this.set('gems', fmt(state.gems));
     this.set('fame', fmt(state.fame));
@@ -244,17 +253,18 @@ export class UI {
 
   // ───────────────────────── 탭 ─────────────────────────
   private renderTabs(): void {
-    const tabs: [Tab, string, Parameters<typeof iconImg>[0]][] = [
-      ['grow', '성장', 'atk'],
-      ['family', '가문', 'crown'],
-      ['quest', '임무', 'fame'],
-      ['shop', '상점', 'gem'],
+    const tabs: [Tab, string, string][] = [
+      ['grow', '성장', iconImg('atk', '')],
+      ['gear', '장비', `<img src="${itemIconUrl('helmet')}" alt="" />`],
+      ['family', '가문', iconImg('crown', '')],
+      ['quest', '임무', iconImg('fame', '')],
+      ['shop', '상점', iconImg('gem', '')],
     ];
     const nav = $('#tabs');
     nav.innerHTML = tabs
       .map(
         ([id, label, icon]) =>
-          `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${iconImg(icon, '')}<span>${label}</span>${id === 'quest' ? '<i class="dot" hidden></i>' : ''}</button>`,
+          `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${icon}<span>${label}</span>${id === 'quest' ? '<i class="dot" hidden></i>' : ''}</button>`,
       )
       .join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
@@ -279,6 +289,7 @@ export class UI {
     if (this.tab === 'grow') this.panel.innerHTML = this.growHtml();
     else if (this.tab === 'family') this.panel.innerHTML = this.familyHtml();
     else if (this.tab === 'quest') this.panel.innerHTML = questHtml(this.core);
+    else if (this.tab === 'gear') this.panel.innerHTML = gearHtml(this.core, this.gearFilter);
     else this.panel.innerHTML = this.shopHtml();
     this.bindPanel();
     this.refreshPanel();
@@ -331,7 +342,7 @@ export class UI {
           <div class="portrait"><img src="${spriteUrl(h.genes)}" alt="" /></div>
           <div class="hero-info">
             <div class="name">${esc(h.name)} <span class="muted small">${h.generation}대 가주 · ${esc(HAIR[h.genes.hairColor].name)}</span></div>
-            <div class="chips">${traitChips(h.genes.traits)}</div>
+            <div class="chips">${talentChip(h.genes)}${traitChips(h.genes.traits)}</div>
             ${geneBars(h.genes)}
           </div>
         </div>
@@ -486,6 +497,31 @@ export class UI {
     this.panel.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((b) =>
       b.addEventListener('click', () => this.openPurchase(b.dataset.buy!)),
     );
+    if (this.tab === 'gear') {
+      const keep = this.panel.scrollTop;
+      bindGear(
+        this.panel,
+        {
+          core: this.core,
+          openModal: (h) => this.openModal(h),
+          toast: (m, ms) => this.toast(m, ms),
+          showAd: (p, cb) => this.showAd(p, cb),
+          openOdds: () => this.openOdds(),
+          rerender: () => {
+            const y = this.panel.scrollTop;
+            this.renderPanel();
+            this.panel.scrollTop = y;
+          },
+        },
+        (slot) => {
+          this.gearFilter = slot;
+          const y = this.panel.scrollTop;
+          this.renderPanel();
+          this.panel.scrollTop = y;
+        },
+      );
+      this.panel.scrollTop = keep;
+    }
   }
 
   private claim(what: string): void {
@@ -618,6 +654,8 @@ export class UI {
       this.set('famStage', String(state.hero.maxStage));
     } else if (this.tab === 'quest') {
       refreshQuest(this.panel, this.core);
+    } else if (this.tab === 'gear') {
+      refreshGear(this.panel, this.core);
     } else if (this.tab === 'shop') {
       const left = state.boostUntil - Date.now();
       this.set('boostInfo', left > 0 ? `남은 시간 ${fmtDuration(left / 1000)} (광고 보면 30분 연장)` : '사냥으로 얻는 골드가 2배');
@@ -870,6 +908,17 @@ export class UI {
         <tr><td>돌연변이(새 특성) 발생</td><td>${fmtPct(g.mutationChance)}</td></tr>
       </table>
       <p class="small muted">특성은 최대 ${g.maxTraits}개. 더 많이 물려받으면 무작위로 ${g.maxTraits}개가 남고, 돌연변이 특성은 반드시 남아요.</p>
+      <b>장비 뽑기 (1회 기준)</b>
+      <table class="odds">
+        <tr><th>등급</th><th>확률</th></tr>
+        ${RARITIES.map((r) => `<tr><td style="color:${r.color}">${r.name} ★</td><td>${fmtPct(GACHA_RARITY[r.id], 1)}</td></tr>`).join('')}
+      </table>
+      <table class="odds">
+        <tr><th>부위</th><th>확률</th></tr>
+        <tr><td>무기 (검·활·지팡이 각 1/3)</td><td>${fmtPct(GACHA_SLOT.weapon, 1)} (각 ${fmtPct(GACHA_SLOT.weapon / 3, 2)})</td></tr>
+        <tr><td>투구 / 갑옷 / 목걸이 / 반지</td><td>각 ${fmtPct(GACHA_SLOT.helmet, 1)}</td></tr>
+      </table>
+      <p class="small muted">뽑기로 나오는 장비는 모두 ★1. 영웅 이상이 ${PITY}번 연속으로 안 나오면 ${PITY}번째는 영웅 확정. 희귀도와 부위는 서로 독립이에요. 예) 전설 활 = ${fmtPct(GACHA_RARITY.legend, 1)} × ${fmtPct(GACHA_SLOT.weapon / 3, 2)} = ${((GACHA_RARITY.legend * GACHA_SLOT.weapon) / 3 * 100).toFixed(3)}%</p>
       <b>돌연변이 특성 확률</b>
       <table class="odds">
         <tr><th>등급</th><th>특성</th><th>돌연변이 시</th><th>자녀 1명 기준</th></tr>
@@ -893,7 +942,7 @@ export class UI {
         <div class="thumb"><img src="${spriteUrl(c.genes)}" alt="" /></div>
         <div class="info">
           <b>${esc(c.name)}</b> <span class="score">유전 점수 ${geneScore(c.genes)}</span>${best ? ' <span class="rec">추천</span>' : ''}
-          <div class="chips">${traitChips(c.genes.traits, c.mutation)}</div>
+          <div class="chips">${talentChip(c.genes)}${traitChips(c.genes.traits, c.mutation)}</div>
           ${geneBars(c.genes)}
         </div>
       </button>`;

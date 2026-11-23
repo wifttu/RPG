@@ -150,7 +150,7 @@ export class BattleSim {
       this.heroCd += 1 / this.stats.atkPerSec;
       const crit = this.rng.chance(this.stats.crit);
       const injury = this.injured ? BALANCE.hero.injuryAtkMul : 1;
-      const damage = this.stats.atk * injury * (crit ? BALANCE.hero.critMultiplier : 1);
+      const damage = this.stats.atk * injury * (crit ? this.stats.critMul : 1);
       m.hp -= damage;
       const killed = m.hp <= 0;
       ev.push({ type: 'heroAttack', damage, crit, killed });

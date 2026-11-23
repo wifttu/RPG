@@ -61,6 +61,14 @@ export interface GameState {
   achievements: string[];
   entitlements: Entitlements;
   timeGuard: { maxSeen: number; tamperCount: number };
+  /** 가문 무기고: 장비 개수, 장착, 뽑기 기록 (세대를 넘어 유지) */
+  gear: {
+    inv: Record<string, number>;
+    equipped: Partial<Record<'weapon' | 'helmet' | 'armor' | 'necklace' | 'ring', string>>;
+    draws: number;
+    pity: number;
+    bestTier: number;
+  };
 }
 
 export type HeirloomKind = 'sword' | 'shield' | 'ring';
@@ -82,6 +90,8 @@ export interface DailyState {
   kills: number;
   upgrades: number;
   bosses: number;
+  /** 오늘 장비 뽑기 횟수 */
+  gacha?: number;
   /** 받은 일일 보상 id */
   claimed: string[];
 }
@@ -123,6 +133,18 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.achievements ??= [];
   s.entitlements ??= { noAds: false, monthlyUntil: 0, starterBought: false };
   s.timeGuard ??= { maxSeen: now, tamperCount: 0 };
+  s.gear ??= { inv: {}, equipped: {}, draws: 0, pity: 0, bestTier: -1 };
+  // v0.3: 재능(검·활·지팡이) 유전자가 없던 예전 데이터는 검으로
+  const fixGenes = (g: Genes | undefined) => {
+    if (g && !g.talent) g.talent = 'sword';
+  };
+  fixGenes(s.hero?.genes);
+  for (const l of s.lineage ?? []) {
+    fixGenes(l.genes);
+    fixGenes(l.spouse?.genes);
+  }
+  for (const c of s.pendingSpouses ?? []) fixGenes(c.genes);
+  for (const list of Object.values(s.pendingChildren ?? {})) for (const c of list) fixGenes(c.genes);
   return s;
 }
 

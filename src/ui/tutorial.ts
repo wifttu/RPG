@@ -6,7 +6,7 @@ import { audio } from '../audio/audio';
 import { josa } from './format';
 import { track } from '../core/analytics';
 
-export type TutorialTab = 'grow' | 'family' | 'quest' | 'shop';
+export type TutorialTab = 'grow' | 'gear' | 'family' | 'quest' | 'shop';
 
 interface Step {
   id: string;
@@ -81,6 +81,16 @@ const STEPS: Step[] = [
     text: () => '보스가 <b>유산석</b>을 떨어뜨렸어요! 가보는 은퇴해도 사라지지 않고 대대로 물려줘요. 가문의 검을 강화해 보세요.',
     button: '확인',
     doneWhen: (g) => g.state.heirlooms.sword + g.state.heirlooms.shield + g.state.heirlooms.ring > 0,
+  },
+  {
+    id: 'gear',
+    when: (g) => g.state.hero.maxStage >= 20,
+    target: '[data-tab="gear"]',
+    title: '장비',
+    text: () =>
+      '<b>장비</b> 탭에서 보석으로 장비를 뽑을 수 있어요 (하루 한 번 무료). 무기에 따라 <b>전사·궁수·마법사</b>가 되고, 가주의 재능과 같은 무기를 들면 더 강해져요.',
+    button: '확인',
+    doneWhen: (_g, tab) => tab === 'gear',
   },
   {
     id: 'retire',

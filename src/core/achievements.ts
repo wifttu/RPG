@@ -44,6 +44,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'heirloom10', name: '가보 장인', desc: '가보 레벨 합계 10', reward: { gems: 80 }, progress: (s) => [totalHeirloomLevel(s), 10] },
   { id: 'heirloom30', name: '가문의 보물', desc: '가보 레벨 합계 30', reward: { gems: 200, legacy: 5 }, progress: (s) => [totalHeirloomLevel(s), 30] },
   { id: 'attend7', name: '꾸준한 가주', desc: '7일 출석', reward: { gems: 100 }, progress: (s) => [s.attendance.count, 7] },
+  { id: 'draw50', name: '무기고 수집가', desc: '장비 50번 뽑기', reward: { gems: 100 }, progress: (s) => [s.gear.draws, 50] },
+  { id: 'gearEpic', name: '영웅의 장비', desc: '영웅 등급 장비 얻기', reward: { gems: 100 }, progress: (s) => [s.gear.bestTier >= 12 ? 1 : 0, 1] },
+  { id: 'gearLegend', name: '전설의 무기고', desc: '전설 등급 장비 얻기', reward: { gems: 300, legacy: 5 }, progress: (s) => [s.gear.bestTier >= 16 ? 1 : 0, 1] },
 ];
 
 export function isDone(s: GameState, a: Achievement): boolean {

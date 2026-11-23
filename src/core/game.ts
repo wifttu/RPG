@@ -13,6 +13,8 @@ import { track } from './analytics';
 import { clock, isRollback, markSeen } from './clock';
 import { claimAttendance, claimMission, claimMonthly, grantReward, rolloverDaily, type Mission, type Reward } from './daily';
 import { buyHeirloom } from './heirloom';
+import { autoEquip } from './equip';
+import { drawGacha, equip, merge, mergeAll, parseKey, tierLabel, type DrawResult, type ItemKey } from './gear';
 import { grantProduct } from './products';
 import { Rng } from './rng';
 import { exportSaveCode, loadGame, saveGame } from './save';
@@ -170,6 +172,51 @@ export class Game {
       this.save();
     }
     return ok;
+  }
+
+  /** 장비 뽑기 (free: 하루 한 번 광고 무료) */
+  gacha(n: 1 | 10, free = false): DrawResult[] | null {
+    const r = drawGacha(this.state, this.rng, n, free);
+    if (r) {
+      this.state.daily.gacha = (this.state.daily.gacha ?? 0) + n;
+      const best = Math.max(...r.map((x) => parseKey(x.key).tier));
+      track('gacha', { n, free, best: tierLabel(best), total: this.state.gear.draws });
+      this.afterGear();
+    }
+    return r;
+  }
+
+  equip(key: ItemKey): boolean {
+    const ok = equip(this.state, key);
+    if (ok) this.afterGear();
+    return ok;
+  }
+
+  autoEquip(): number {
+    const n = autoEquip(this.state);
+    this.afterGear();
+    return n;
+  }
+
+  merge(key: ItemKey): number {
+    const n = merge(this.state, key);
+    if (n) this.afterGear();
+    return n;
+  }
+
+  mergeAll(): number {
+    const n = mergeAll(this.state);
+    if (n) {
+      track('merge_all', { made: n });
+      this.afterGear();
+    }
+    return n;
+  }
+
+  private afterGear(): void {
+    this.sim.refreshStats();
+    this.emit('change', undefined);
+    this.save();
   }
 
   /** 벽 앞에서 머물기/도전 */

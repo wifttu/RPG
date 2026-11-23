@@ -8,6 +8,11 @@ export const EYE_COLOR_COUNT = 5;
 /** 머리 모양 = 영웅 시트 종류 수 (src/art/heroSheet.ts 의 SHEETS) */
 export const HAIR_STYLE_COUNT = 3;
 
+/** 재능: 이 무기를 들면 공격력 보너스 (src/core/gear.ts TALENT_ATK_BONUS) */
+export type Talent = 'sword' | 'bow' | 'staff';
+export const TALENTS: Talent[] = ['sword', 'bow', 'staff'];
+export const TALENT_LABEL: Record<Talent, string> = { sword: '검', bow: '활', staff: '지팡이' };
+
 /** 영웅 한 명의 유전 정보. 능력치 잠재력 + 외형 + 특성. */
 export interface Genes {
   str: number;
@@ -18,6 +23,7 @@ export interface Genes {
   eyeColor: number;
   hairStyle: number;
   traits: string[];
+  talent: Talent;
 }
 
 const clampStat = (v: number) => Math.max(1, Math.min(100, Math.round(v)));
@@ -48,6 +54,7 @@ export function randomGenes(rng: Rng, quality = 0): Genes {
     eyeColor: rng.int(0, EYE_COLOR_COUNT - 1),
     hairStyle: rng.int(0, HAIR_STYLE_COUNT - 1),
     traits,
+    talent: rng.pick(TALENTS),
   };
 }
 
@@ -95,6 +102,8 @@ export function inherit(a: Genes, b: Genes, rng: Rng): InheritResult {
       eyeColor: look(a.eyeColor, b.eyeColor, EYE_COLOR_COUNT),
       hairStyle: look(a.hairStyle, b.hairStyle, HAIR_STYLE_COUNT),
       traits,
+      // 재능은 한쪽 부모에게서, 가끔(12%) 새로운 재능이 나온다
+      talent: rng.chance(g.looksMutation) ? rng.pick(TALENTS) : rng.chance(0.5) ? a.talent : b.talent,
     },
     mutation,
   };
