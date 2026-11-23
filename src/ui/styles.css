@@ -1356,3 +1356,93 @@ textarea.code {
 .slot .item {
   pointer-events: none;
 }
+
+/* ───────── v0.4: 설정 ───────── */
+.set-group {
+  border-top: 1px solid #ffffff14;
+  padding: 8px 0 4px;
+}
+.set-group h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.set-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--gold);
+  flex: none;
+}
+.set-row input[type='range'] {
+  flex: 1;
+  max-width: 180px;
+  accent-color: var(--gold);
+}
+.set-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.btn.danger {
+  color: var(--bad);
+}
+
+/* 스킬 쿨타임 */
+.skill-chip {
+  margin-top: 4px;
+  width: 96px;
+  background: #0b0812cc;
+  border: 1px solid var(--line);
+  padding: 2px 5px 3px;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+  font-size: 10px;
+  color: var(--muted);
+}
+.skill-chip i {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  background: #ffffff1a;
+}
+.skill-chip i b {
+  display: block;
+  height: 100%;
+  background: var(--gem);
+}
+.skill-chip.ready {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.skill-chip.ready i b {
+  background: var(--gold);
+}
+
+/* 이야기 사건 */
+.story-text {
+  line-height: 1.7;
+}
+.story-choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.story-choices .btn {
+  width: 100%;
+  padding: 10px;
+  white-space: normal;
+}
+.rec.twin {
+  background: var(--gem);
+}
+.rec.special {
+  background: var(--legendary);
+}

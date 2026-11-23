@@ -5,6 +5,7 @@ import galmuri9 from 'galmuri/dist/Galmuri9.woff2?url';
 import { loadHeroSheet } from './art/heroSheet';
 import { loadMonsterArt } from './art/monsterArt';
 import { initNative } from './platform/native';
+import { cancelOnReturn, scheduleOnLeave } from './platform/notify';
 import { Game } from './core/game';
 import { clearSave } from './core/save';
 import { BattleScene, VIEW_H, VIEW_W } from './scenes/BattleScene';
@@ -60,8 +61,14 @@ async function boot(): Promise<void> {
 
   // 앱이 백그라운드로 가거나 닫힐 때 저장 (오프라인 보상 계산 기준 시각)
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) core.save();
+    if (document.hidden) {
+      core.save();
+      void scheduleOnLeave(core.state);
+    } else {
+      void cancelOnReturn();
+    }
   });
+  void cancelOnReturn();
   window.addEventListener('pagehide', () => core.save());
 }
 

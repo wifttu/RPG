@@ -61,6 +61,8 @@ export interface GameState {
   achievements: string[];
   entitlements: Entitlements;
   timeGuard: { maxSeen: number; tamperCount: number };
+  /** 이야기 사건: 마지막으로 일어난 시각, 사건별 본 횟수 */
+  events: { lastAt: number; seen: Record<string, number> };
   /** 가문 무기고: 장비 개수, 장착, 뽑기 기록 (세대를 넘어 유지) */
   gear: {
     inv: Record<string, number>;
@@ -92,6 +94,8 @@ export interface DailyState {
   bosses: number;
   /** 오늘 장비 뽑기 횟수 */
   gacha?: number;
+  /** 오늘 본 광고 수 (보상 종류별) */
+  ads?: Record<string, number>;
   /** 받은 일일 보상 id */
   claimed: string[];
 }
@@ -109,6 +113,10 @@ export interface PendingCandidate {
   name: string;
   genes: Genes;
   mutation?: string | null;
+  /** 쌍둥이로 태어난 아이 */
+  twin?: boolean;
+  /** 특별한 혼처 (예: 용의 혼약) */
+  special?: string;
 }
 
 export const SAVE_VERSION = 1;
@@ -134,6 +142,7 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.entitlements ??= { noAds: false, monthlyUntil: 0, starterBought: false };
   s.timeGuard ??= { maxSeen: now, tamperCount: 0 };
   s.gear ??= { inv: {}, equipped: {}, draws: 0, pity: 0, bestTier: -1 };
+  s.events ??= { lastAt: now, seen: {} };
   // v0.3: 재능(검·활·지팡이) 유전자가 없던 예전 데이터는 검으로
   const fixGenes = (g: Genes | undefined) => {
     if (g && !g.talent) g.talent = 'sword';

@@ -13,7 +13,7 @@ import { audio } from '../audio/audio';
 import { Tutorial } from './tutorial';
 import { track, eventCounts } from '../core/analytics';
 import { clock } from '../core/clock';
-import { adFree, rewardText, type Mission, type Reward } from '../core/daily';
+import { adFree, adsLeft, countAd, rewardText, type Mission, type Reward } from '../core/daily';
 import { HEIRLOOMS, heirloomCost, heirloomTitle } from '../core/heirloom';
 import { PRODUCTS, canBuy, formatKrw } from '../core/products';
 import { importSaveCode } from '../core/save';
@@ -23,8 +23,12 @@ import type { HeirloomKind } from '../core/state';
 import { questBadge, questHtml, refreshQuest } from './questPanel';
 import { bindGear, gearHtml, refreshGear } from './gearPanel';
 import { itemIconUrl } from '../art/itemIcons';
-import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, heroClass, type Slot } from '../core/gear';
+import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, SKILLS, heroClass, type Slot } from '../core/gear';
 import { TALENT_LABEL } from '../core/genetics';
+import { settings, updateSettings } from '../core/settings';
+import { LIFE_EVENT_ODDS } from '../core/events';
+import { notifyAllowed, notifySupported, requestNotify } from '../platform/notify';
+import pkg from '../../package.json';
 
 type Tab = 'grow' | 'gear' | 'family' | 'quest' | 'shop';
 
@@ -97,7 +101,13 @@ export class UI {
       }
     });
     this.core.on('newGeneration', () => this.renderPanel());
+    this.core.on('story', () => this.queueModal(() => this.openStory()));
     this.bindSound();
+    $('[data-settings]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      audio.play('click');
+      this.openSettings();
+    });
     $('[data-stay]').addEventListener('click', (e) => {
       e.stopPropagation();
       audio.play('click');
@@ -164,6 +174,7 @@ export class UI {
         <div class="stage-chip" data-b="stage"></div>
         <div class="pips" data-b="pips"></div>
         <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
+        <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
         <div class="status-chips">
           <button class="stay-chip" data-stay hidden></button>
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
@@ -173,6 +184,7 @@ export class UI {
         <div class="boost-chip" data-b="boost" hidden></div>
         <div class="boost-chip" data-b="speed" hidden></div>
         <button class="sound-chip" data-sound aria-label="소리 켜기/끄기"></button>
+        <button class="sound-chip" data-settings aria-label="설정">⚙ 설정</button>
       </div>`;
   }
 
@@ -236,6 +248,12 @@ export class UI {
       if (stay.textContent !== t) stay.textContent = t;
     }
     $('[data-b="injury"]').hidden = !this.core.sim.injured;
+    // 스킬 쿨타임
+    const sk = SKILLS[heroClass(state).kind];
+    this.set('skillName', sk.name);
+    const ready = this.core.sim.skillReady;
+    $('[data-b="skillBar"]').style.width = `${ready * 100}%`;
+    $('[data-skill]').classList.toggle('ready', ready >= 0.98);
     // 임무 탭 알림 점
     const dot = $('#tabs [data-tab="quest"] .dot');
     if (dot) dot.hidden = !questBadge(state);
@@ -410,11 +428,11 @@ export class UI {
       <div class="card">
         <h3>${iconImg('ad')} 무료 보상 <small>보상형 광고</small></h3>
         <div class="shop-item">
-          <div class="meta"><b>골드 2배 · ${BALANCE.ads.goldBoostMinutes}분</b><div class="small muted" data-b="boostInfo"></div></div>
+          <div class="meta"><b>골드 2배 · ${BALANCE.ads.goldBoostMinutes}분</b> <span class="small muted" data-b="adLeft-gold_boost"></span><div class="small muted" data-b="boostInfo"></div></div>
           <button class="btn green" data-act="ad-boost">${iconImg('ad')} 광고 보기</button>
         </div>
         <div class="shop-item">
-          <div class="meta"><b>보석 +${g.adReward}</b><div class="small muted">혼담·축복 의식에 사용</div></div>
+          <div class="meta"><b>보석 +${g.adReward}</b> <span class="small muted" data-b="adLeft-gems"></span><div class="small muted">장비 뽑기·혼담·축복 의식에 사용</div></div>
           <button class="btn green" data-act="ad-gems">${iconImg('ad')} 광고 보기</button>
         </div>
       </div>
@@ -433,20 +451,13 @@ export class UI {
         <p class="small muted" style="margin:0 0 8px">특성 유전·돌연변이처럼 확률로 결정되는 모든 요소의 확률을 공개합니다. (게임산업법 확률형 아이템 정보 공개 대응)</p>
         <button class="btn ghost wide" data-act="odds">확률표 보기</button>
       </div>
-      <div class="card">
-        <h3>기기 이전</h3>
-        <p class="small muted" style="margin:0 0 8px">휴대폰을 바꿀 때: 지금 기기에서 코드를 복사해서, 새 기기에서 붙여넣으세요.</p>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn ghost" data-act="export">이전 코드 만들기</button>
-          <button class="btn ghost" data-act="import">코드로 불러오기</button>
-        </div>
-      </div>
       ${RELEASE ? '' : `<div class="card">
         <h3>개발용</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn ghost" data-act="speed">배속 바꾸기</button>
           <button class="btn ghost" data-act="age">+10살</button>
           <button class="btn ghost" data-act="events">플레이 기록</button>
+          <button class="btn ghost" data-act="story">사건 일으키기</button>
           <button class="btn ghost" data-act="reset">처음부터</button>
         </div>
       </div>`}`;
@@ -580,6 +591,9 @@ export class UI {
       case 'events':
         this.openEvents();
         break;
+      case 'story':
+        this.core.triggerStory();
+        break;
     }
   }
 
@@ -659,6 +673,15 @@ export class UI {
     } else if (this.tab === 'shop') {
       const left = state.boostUntil - Date.now();
       this.set('boostInfo', left > 0 ? `남은 시간 ${fmtDuration(left / 1000)} (광고 보면 30분 연장)` : '사냥으로 얻는 골드가 2배');
+      for (const [pl, act] of [
+        ['gold_boost', 'ad-boost'],
+        ['gems', 'ad-gems'],
+      ] as const) {
+        const n = adsLeft(state, pl, BALANCE.ads.dailyCap);
+        this.set(`adLeft-${pl}`, `오늘 ${n}/${BALANCE.ads.dailyCap[pl]}`);
+        const b = $<HTMLButtonElement>(`[data-act="${act}"]`, this.panel);
+        if (b) b.disabled = n <= 0;
+      }
     }
   }
 
@@ -691,7 +714,12 @@ export class UI {
    * 앱(안드로이드)에서는 AdMob 보상형 광고, 웹에서는 3초짜리 테스트 화면.
    */
   private showAd(placement: string, onReward: () => void): void {
+    if (adsLeft(this.core.state, placement, BALANCE.ads.dailyCap) <= 0) {
+      this.toast('오늘은 이 보상을 다 받았어요. 내일 다시 받을 수 있어요');
+      return;
+    }
     const reward = () => {
+      countAd(this.core.state, placement);
       this.core.state.progress.adsWatched++;
       track('ad_reward', { placement });
       audio.play('reward');
@@ -756,6 +784,38 @@ export class UI {
     });
   }
 
+  /** 이야기 사건: 선택지 → 결과 */
+  private openStory(): void {
+    const ev = this.core.pendingStory;
+    if (!ev) return;
+    audio.play('retire');
+    const { root, close } = this.openModal(`
+      <div class="story">
+        <p class="small muted" style="text-align:center;margin:0">이야기</p>
+        <h2>${esc(ev.title)}</h2>
+        <p class="lead story-text">${ev.text(this.core.state)}</p>
+        <div class="story-choices">
+          ${ev.choices
+            .map((c, i) => {
+              const why = c.disabled?.(this.core.state);
+              return `<button class="btn ${i === 0 ? '' : 'ghost'}" data-c="${i}" ${why ? 'disabled' : ''}>${esc(c.label)}${why ? `<br /><span class="small">${esc(why)}</span>` : ''}</button>`;
+            })
+            .join('')}
+        </div>
+      </div>`);
+    root.querySelectorAll<HTMLButtonElement>('[data-c]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const result = this.core.resolveStory(Number(b.dataset.c));
+        audio.play('reward');
+        root.querySelector('.story-choices')!.innerHTML = `<p class="retire-warn good">${result}</p><button class="btn wide" data-ok>계속 모험하기</button>`;
+        root.querySelector('[data-ok]')!.addEventListener('click', () => {
+          close();
+          this.renderPanel();
+        });
+      }),
+    );
+  }
+
   /** 은퇴 시점 조언: 명성이 거의 안 쌓이면 경고 */
   private retireAdvice(): { level: 'bad' | 'warn' | 'good'; text: string } | null {
     const s = this.core.state;
@@ -772,6 +832,125 @@ export class UI {
         text: `명성 배율이 ${fmtMul(before)} → ${fmtMul(after)}로 조금만 올라요. 최고 기록을 더 올리면 명성이 크게 늘어요.`,
       };
     return { level: 'good', text: `은퇴하면 다음 가주가 ${fmtMul(after / before)} 강해져요.` };
+  }
+
+  // ───────────────────────── 설정 ─────────────────────────
+  private openSettings(): void {
+    const native = notifySupported();
+    const toggle = (id: string, label: string, on: boolean, desc = '') => `
+      <label class="set-row" for="${id}">
+        <span><b>${label}</b>${desc ? `<br /><span class="small muted">${desc}</span>` : ''}</span>
+        <input type="checkbox" id="${id}" ${on ? 'checked' : ''} />
+      </label>`;
+    const slider = (id: string, label: string, v: number) => `
+      <label class="set-row" for="${id}">
+        <b>${label}</b>
+        <input type="range" id="${id}" min="0" max="100" step="5" value="${Math.round(v * 100)}" />
+      </label>`;
+    const { root, close } = this.openModal(`
+      <h2>설정</h2>
+      <div class="set-group">
+        <h4>소리</h4>
+        ${toggle('set-sound', '소리', audio.enabled)}
+        ${slider('set-music', '배경음악', settings.music)}
+        ${slider('set-sfx', '효과음', settings.sfx)}
+      </div>
+      <div class="set-group">
+        <h4>화면</h4>
+        ${toggle('set-shake', '화면 흔들림', settings.shake, '치명타·보스 등장 때')}
+      </div>
+      <div class="set-group">
+        <h4>알림</h4>
+        ${
+          native
+            ? `${toggle('set-n-retire', '은퇴할 나이', settings.notify.retire, '가주가 수명에 닿으면')}
+               ${toggle('set-n-offline', '오프라인 보상 가득', settings.notify.offline, '8시간이 지나면')}
+               ${toggle('set-n-daily', '새로운 하루', settings.notify.daily, '다음 날 낮 12시, 출석·일일 임무')}
+               <p class="small" data-notify-state></p>`
+            : '<p class="small muted">알림은 휴대폰 앱에서만 쓸 수 있어요.</p>'
+        }
+      </div>
+      <div class="set-group">
+        <h4>데이터</h4>
+        <p class="small muted" style="margin:0 0 6px">휴대폰을 바꿀 때: 지금 기기에서 코드를 복사해서 새 기기에서 붙여넣으세요.</p>
+        <div class="set-btns">
+          <button class="btn ghost" data-s="export">이전 코드 만들기</button>
+          <button class="btn ghost" data-s="import">코드로 불러오기</button>
+          <button class="btn ghost" data-s="odds">확률 정보</button>
+          <button class="btn ghost danger" data-s="reset">처음부터 시작</button>
+        </div>
+      </div>
+      <p class="small muted" style="text-align:center">계승자들 v${pkg.version}</p>
+      <div class="actions"><button class="btn" data-s="close">닫기</button></div>`);
+    const $in = (id: string) => root.querySelector<HTMLInputElement>(`#${id}`)!;
+    $in('set-sound').addEventListener('change', (e) => {
+      audio.setEnabled((e.target as HTMLInputElement).checked);
+      const btn = $('[data-sound]');
+      btn.textContent = audio.enabled ? '♪ 소리 켬' : '♪ 소리 끔';
+      btn.classList.toggle('off', !audio.enabled);
+    });
+    $in('set-music').addEventListener('input', (e) => updateSettings({ music: Number((e.target as HTMLInputElement).value) / 100 }));
+    $in('set-sfx').addEventListener('input', (e) => updateSettings({ sfx: Number((e.target as HTMLInputElement).value) / 100 }));
+    $in('set-sfx').addEventListener('change', () => audio.play('coin'));
+    $in('set-shake').addEventListener('change', (e) => updateSettings({ shake: (e.target as HTMLInputElement).checked }));
+    if (native) {
+      const state = root.querySelector<HTMLElement>('[data-notify-state]')!;
+      const paint = async () => {
+        const ok = await notifyAllowed();
+        state.innerHTML = ok
+          ? '<span style="color:var(--good)">알림 허락됨</span>'
+          : '<button class="btn blue" data-s="allow">알림 허락하기</button>';
+        state.querySelector('[data-s="allow"]')?.addEventListener('click', async () => {
+          await requestNotify();
+          void paint();
+        });
+      };
+      void paint();
+      for (const [id, k] of [
+        ['set-n-retire', 'retire'],
+        ['set-n-offline', 'offline'],
+        ['set-n-daily', 'daily'],
+      ] as const)
+        $in(id).addEventListener('change', (e) =>
+          updateSettings({ notify: { ...settings.notify, [k]: (e.target as HTMLInputElement).checked } }),
+        );
+    }
+    root.querySelectorAll<HTMLButtonElement>('[data-s]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const a = b.dataset.s;
+        if (a === 'close') close();
+        if (a === 'export' || a === 'import' || a === 'reset' || a === 'odds') {
+          close();
+          if (a === 'export') this.openExport();
+          if (a === 'import') this.openImport();
+          if (a === 'reset') this.openReset();
+          if (a === 'odds') this.openOdds();
+        }
+      }),
+    );
+  }
+
+  /** 첫 은퇴 뒤 한 번만: 알림을 켜 둘지 물어본다 (앱에서만) */
+  private async maybeAskNotify(): Promise<void> {
+    if (!notifySupported() || (await notifyAllowed())) return;
+    try {
+      if (localStorage.getItem('heirs.notifyAsked')) return;
+      localStorage.setItem('heirs.notifyAsked', '1');
+    } catch {
+      return;
+    }
+    const { root, close } = this.openModal(`
+      <h2>알림을 켜 둘까요?</h2>
+      <p class="lead">가주가 은퇴할 나이가 되거나 오프라인 보상이 가득 차면 알려 드려요. 하루 최대 3번, 설정에서 언제든 끌 수 있어요.</p>
+      <div class="actions">
+        <button class="btn ghost" data-a="later">나중에</button>
+        <button class="btn green" data-a="on">알림 켜기</button>
+      </div>`);
+    root.querySelector('[data-a="later"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="on"]')!.addEventListener('click', async () => {
+      close();
+      if (await requestNotify()) this.toast('알림을 켰어요');
+    });
   }
 
   private openPurchase(id: string): void {
@@ -908,6 +1087,12 @@ export class UI {
         <tr><td>돌연변이(새 특성) 발생</td><td>${fmtPct(g.mutationChance)}</td></tr>
       </table>
       <p class="small muted">특성은 최대 ${g.maxTraits}개. 더 많이 물려받으면 무작위로 ${g.maxTraits}개가 남고, 돌연변이 특성은 반드시 남아요.</p>
+      <b>출생·혼담 사건</b>
+      <table class="odds">
+        <tr><th>사건</th><th>확률</th></tr>
+        <tr><td>용의 혼약 (혼담 1번마다, 새 혼담 포함): 후보 1명이 전설 특성 '용의 혈통'</td><td>${fmtPct(LIFE_EVENT_ODDS.dragonSuitor)}</td></tr>
+        <tr><td>쌍둥이 (자녀 후보를 뽑을 때마다, 축복 의식 포함): 후보 1명 추가</td><td>${fmtPct(LIFE_EVENT_ODDS.twins)}</td></tr>
+      </table>
       <b>장비 뽑기 (1회 기준)</b>
       <table class="odds">
         <tr><th>등급</th><th>확률</th></tr>
@@ -941,7 +1126,7 @@ export class UI {
       <button class="cand ${best ? 'best' : ''}" data-id="${c.id}" aria-pressed="false">
         <div class="thumb"><img src="${spriteUrl(c.genes)}" alt="" /></div>
         <div class="info">
-          <b>${esc(c.name)}</b> <span class="score">유전 점수 ${geneScore(c.genes)}</span>${best ? ' <span class="rec">추천</span>' : ''}
+          <b>${esc(c.name)}</b> <span class="score">유전 점수 ${geneScore(c.genes)}</span>${best ? ' <span class="rec">추천</span>' : ''}${c.twin ? ' <span class="rec twin">쌍둥이</span>' : ''}${c.special ? ` <span class="rec special">${esc(c.special)}</span>` : ''}
           <div class="chips">${talentChip(c.genes)}${traitChips(c.genes.traits, c.mutation)}</div>
           ${geneBars(c.genes)}
         </div>
@@ -1011,6 +1196,7 @@ export class UI {
         ${steps(1)}
         <h2>혼담이 들어왔어요</h2>
         <p class="lead small">배우자의 특성과 능력치가 자녀에게 이어져요. 명성이 높을수록 좋은 혼처가 들어와요.</p>
+        ${list.some((c) => c.special) ? '<p class="retire-warn good" style="text-align:center">🐉 용의 혈통을 이은 가문에서 혼담이 들어왔어요!</p>' : ''}
         <p class="small muted pick-hint">카드를 눌러 고른 뒤, 아래 버튼으로 결정하세요. <span class="rec">추천</span> = 유전 점수가 가장 높은 후보</p>
         <div class="cands">${list.map((c) => candCard(c, c.id === best)).join('')}</div>
         <div class="actions">
@@ -1034,6 +1220,7 @@ export class UI {
           <img src="${spriteUrl(h.genes)}" alt="" /><span class="heart">♥</span><img src="${spriteUrl(spouse.genes)}" alt="" style="transform:scaleX(-1)" />
         </div>
         <p class="lead small">${esc(josa(h.name, '과', '와'))} ${esc(spouse.name)} 사이에서 태어난 아이들이에요.</p>
+        ${list.some((c) => c.twin) ? '<p class="retire-warn good" style="text-align:center">✨ 쌍둥이가 태어났어요! 후계자 후보가 한 명 더 있어요.</p>' : ''}
         <p class="small muted pick-hint">카드를 눌러 고른 뒤, 아래 버튼으로 결정하세요.</p>
         <div class="cands">${list.map((c) => candCard(c, c.id === best)).join('')}</div>
         <div class="actions">
@@ -1064,6 +1251,7 @@ export class UI {
       root.querySelector('[data-a="go"]')!.addEventListener('click', () => {
         close();
         this.renderPanel();
+        void this.maybeAskNotify();
       });
     };
 

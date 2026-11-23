@@ -23,7 +23,8 @@ import type { Game } from '../core/game';
 import { mix } from '../art/palette';
 import { fmt } from '../ui/format';
 import { audio } from '../audio/audio';
-import { heroClass } from '../core/gear';
+import { heroClass, SKILLS, type WeaponKind } from '../core/gear';
+import { settings } from '../core/settings';
 
 export const VIEW_W = 160;
 export const VIEW_H = 144;
@@ -320,6 +321,9 @@ export class BattleScene extends Phaser.Scene {
           audio.play('kill');
           this.time.delayedCall(260, () => audio.play('coin'));
           break;
+        case 'skill':
+          this.castSkill(e.kind, e.hits);
+          break;
         case 'monsterAttack':
           this.monsterHit(e.damage);
           audio.play('hurt');
@@ -363,7 +367,7 @@ export class BattleScene extends Phaser.Scene {
     this.monster = c;
     this.monsterSprite = spr;
     this.monsterData = m;
-    if (m.boss) this.cameras.main.shake(200, 0.006);
+    if (m.boss) this.shake(200, 0.006);
   }
 
   private clearMonster(): void {
@@ -404,7 +408,77 @@ export class BattleScene extends Phaser.Scene {
       this.sparks.setParticleTint(crit ? 0xffd84a : 0xffffff);
       this.sparks.explode(crit ? 10 : 4, hx, hy);
       this.floatText(crit ? `${fmt(damage)}!` : fmt(damage), this.monster.x, hy - 8, crit ? UI.crit : UI.text, crit);
-      if (crit) this.cameras.main.shake(80, 0.004);
+      if (crit) this.shake(80, 0.004);
+    }
+  }
+
+  /** 직업 스킬 연출 (피해 계산은 BattleSim 이 이미 했다) */
+  private castSkill(kind: WeaponKind, hits: { damage: number; crit: boolean }[]): void {
+    const name = SKILLS[kind].name;
+    const label = this.add
+      .text(HERO_X, FEET_Y - 62, name, { fontFamily: FONT, fontSize: '12px', color: '#fff4c0', resolution: 1 })
+      .setOrigin(0.5)
+      .setShadow(1, 1, OUTLINE, 0, false, true);
+    this.tweens.add({ targets: label, y: label.y - 10, alpha: { from: 1, to: 0 }, delay: 400, duration: 500, onComplete: () => label.destroy() });
+    const target = this.monster;
+    const spr = this.monsterSprite;
+    const tx = target ? target.x : MON_X;
+    const ty = FEET_Y - (spr ? spr.displayHeight / 2 : 14);
+    const total = hits.reduce((a, h) => a + h.damage, 0);
+    const anyCrit = hits.some((h) => h.crit);
+
+    if (kind === 'sword') {
+      audio.play('whirl');
+      this.attacking = true;
+      this.playHero('slash', { duration: 300 });
+      this.tweens.add({ targets: this.heroSprite, x: 14, duration: 120, yoyo: true, ease: 'Quad.out' });
+      // 회오리: 영웅 주변을 도는 불꽃
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        this.sparks.setParticleTint(i % 2 ? 0xffe08a : 0xffffff);
+        this.time.delayedCall(i * 12, () => this.sparks.explode(2, HERO_X + 8 + Math.cos(a) * 18, FEET_Y - 18 + Math.sin(a) * 12));
+      }
+      this.time.delayedCall(160, () => {
+        this.sparks.setParticleTint(0xffd84a);
+        this.sparks.explode(16, tx - 4, ty);
+        this.floatText(`${fmt(total)}!`, tx, ty - 12, UI.crit, true);
+        this.shake(150, 0.008);
+      });
+    } else if (kind === 'bow') {
+      audio.play('volley');
+      hits.forEach((h, i) =>
+        this.time.delayedCall(i * 70, () => {
+          if (this.monster) this.shoot('arrow', h.crit);
+          this.time.delayedCall(90, () => this.floatText(fmt(h.damage), tx + (i - 2) * 6, ty - 8 - i * 4, h.crit ? UI.crit : '#bfe8ff', false));
+        }),
+      );
+    } else {
+      audio.play('meteor');
+      const m = this.add.image(tx + 30, -12, 'orb').setScale(3).setTint(0xff8a3a);
+      this.tweens.add({
+        targets: m,
+        x: tx,
+        y: ty,
+        duration: 420,
+        ease: 'Quad.in',
+        onUpdate: () => this.dust.emitParticleAt(m.x + 4, m.y - 4, 1),
+        onComplete: () => {
+          m.destroy();
+          this.sparks.setParticleTint(0xff8a3a);
+          this.sparks.explode(30, tx, ty);
+          this.sparks.setParticleTint(0xffe08a);
+          this.sparks.explode(14, tx, ty);
+          this.shake(260, 0.012);
+          this.floatText(`${fmt(total)}!`, tx, ty - 12, anyCrit ? UI.crit : '#ffb36b', true);
+        },
+      });
+    }
+    if (spr && kind !== 'staff') {
+      this.time.delayedCall(kind === 'sword' ? 160 : 100, () => {
+        if (!spr.active) return;
+        spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+        this.time.delayedCall(90, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.charTint()));
+      });
     }
   }
 
@@ -518,6 +592,11 @@ export class BattleScene extends Phaser.Scene {
       ease: 'Quad.out',
       onComplete: () => t.destroy(),
     });
+  }
+
+  /** 화면 흔들림 (설정에서 끌 수 있음) */
+  private shake(ms: number, amount: number): void {
+    if (settings.shake) this.cameras.main.shake(ms, amount);
   }
 
   private regionTitle(name: string): void {

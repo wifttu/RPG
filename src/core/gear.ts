@@ -94,19 +94,21 @@ const NEUTRAL: GearEffects = { atkMul: 1, hpMul: 1, spdMul: 1, critAdd: 0, critM
 /** 장비 하나의 효과 (장착 시) */
 export function itemEffect(key: ItemKey): Partial<GearEffects> {
   const { kind, tier } = parseKey(key);
+  // 등급이 하나 오를 때마다 1.25배. 영웅★1(12) 무기 ≈ 공격력 x2.5, 전설★4(19) ≈ x8
+  const g = 1.25 ** tier;
   switch (kind) {
     case 'sword':
     case 'bow':
     case 'staff':
-      return { atkMul: 1 + 0.25 * 1.32 ** tier };
+      return { atkMul: 1 + 0.1 * g };
     case 'helmet':
-      return { hpMul: 1 + 0.15 * 1.32 ** tier };
+      return { hpMul: 1 + 0.06 * g };
     case 'armor':
-      return { hpMul: 1 + 0.25 * 1.32 ** tier };
+      return { hpMul: 1 + 0.1 * g };
     case 'necklace':
-      return { critAdd: 0.01 + 0.005 * tier };
+      return { critAdd: 0.01 + 0.004 * tier };
     case 'ring':
-      return { goldMul: 1 + 0.15 * 1.3 ** tier };
+      return { goldMul: 1 + 0.08 * g };
   }
 }
 
@@ -129,6 +131,22 @@ export const CLASSES: Record<WeaponKind, ClassDef> = {
     ranged: true,
     effect: { atkMul: 1.3, spdMul: 0.85, critMul: 2.5 },
   },
+};
+
+/** 직업 스킬: 일정 시간마다 자동으로 쓰는 필살기 */
+export interface SkillDef {
+  name: string;
+  desc: string;
+  cooldown: number;
+  /** 한 번에 때리는 횟수와 한 대의 공격력 배율 */
+  hits: number;
+  perHit: number;
+}
+
+export const SKILLS: Record<WeaponKind, SkillDef> = {
+  sword: { name: '회오리 베기', desc: '10초마다 공격력의 400% 한 방', cooldown: 10, hits: 1, perHit: 4 },
+  bow: { name: '연사', desc: '8초마다 화살 5발 (발당 공격력 80%)', cooldown: 8, hits: 5, perHit: 0.8 },
+  staff: { name: '메테오', desc: '14초마다 공격력의 800% 운석', cooldown: 14, hits: 1, perHit: 8 },
 };
 
 /** 재능(유전)과 같은 무기를 들면 */

@@ -1,3 +1,4 @@
+import { onSettings, settings } from '../core/settings';
 import { MUSIC_BPM, SFX, scheduleMusicStep, type SfxName } from './synth';
 
 const PREF_KEY = 'heirs.sound';
@@ -27,6 +28,13 @@ class AudioEngine {
       /* 저장소를 못 쓰면 기본값 */
     }
     this.enabled = on;
+    onSettings(() => this.applyVolumes());
+  }
+
+  /** 설정 화면의 배경음악·효과음 크기 */
+  applyVolumes(): void {
+    if (this.sfxBus) this.sfxBus.gain.value = settings.sfx;
+    if (this.musicBus) this.musicBus.gain.value = settings.music * 0.7;
   }
 
   unlock(): void {
@@ -43,6 +51,7 @@ class AudioEngine {
       this.musicBus = this.ctx.createGain();
       this.musicBus.gain.value = 0.7;
       this.musicBus.connect(master);
+      this.applyVolumes();
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     this.startMusic();

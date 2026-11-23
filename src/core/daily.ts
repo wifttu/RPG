@@ -113,6 +113,18 @@ export function claimMonthly(state: GameState, now: number): boolean {
   return true;
 }
 
+/** 오늘 이 광고 보상을 몇 번 더 받을 수 있는지 (한도 없으면 Infinity) */
+export function adsLeft(state: GameState, placement: string, caps: Record<string, number>): number {
+  const cap = caps[placement];
+  if (cap === undefined) return Infinity;
+  return Math.max(0, cap - (state.daily.ads?.[placement] ?? 0));
+}
+
+export function countAd(state: GameState, placement: string): void {
+  state.daily.ads ??= {};
+  state.daily.ads[placement] = (state.daily.ads[placement] ?? 0) + 1;
+}
+
 /** 광고 없이 보상을 받을 수 있는지 (광고 제거 또는 월정액) */
 export function adFree(state: GameState, now: number): boolean {
   return state.entitlements.noAds || monthlyActive(state, now);

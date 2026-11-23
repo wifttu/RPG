@@ -1,5 +1,6 @@
 import { BALANCE } from '../config/balance';
 import { houseBest, isBossStage, isMarchStage, monsterAtk, monsterGold, monsterHp, monstersInStage } from './economy';
+import { heroClass, SKILLS, type WeaponKind } from './gear';
 import { legacyForBoss } from './heirloom';
 import type { Rng } from './rng';
 import type { GameState } from './state';
@@ -25,6 +26,8 @@ export type BattleEvent =
   | { type: 'stageChange'; stage: number; boss: boolean; reason: 'clear' | 'death' | 'timeout' }
   | { type: 'heroDeath' }
   | { type: 'respawn' }
+  /** 직업 스킬 */
+  | { type: 'skill'; kind: WeaponKind; hits: { damage: number; crit: boolean }[]; killed: boolean }
   /** 같은 곳에서 계속 실패 → 머물기 시작 */
   | { type: 'wall'; stage: number }
   /** 머무는 동안 충분히 강해져서 다시 도전 */
@@ -68,6 +71,8 @@ export class BattleSim {
   private fails = new Map<number, number>();
   /** 머물기 시작할 때의 전투력 */
   private stayPower = 0;
+  /** 스킬 대기 시간 (처음에는 3초 뒤 바로 보여 준다) */
+  skillCd = 3;
 
   constructor(
     private state: GameState,
@@ -79,6 +84,12 @@ export class BattleSim {
 
   get dead(): boolean {
     return this.respawnTimer > 0;
+  }
+
+  /** 스킬 준비 정도 0~1 (화면 표시용) */
+  get skillReady(): number {
+    const cd = SKILLS[heroClass(this.state).kind].cooldown;
+    return Math.max(0, Math.min(1, 1 - this.skillCd / cd));
   }
 
   get injured(): boolean {
@@ -136,6 +147,28 @@ export class BattleSim {
     }
 
     const m = this.monster;
+
+    // 직업 스킬: 쿨타임이 차면 자동 사용
+    this.skillCd -= dt;
+    if (this.skillCd <= 0) {
+      const kind = heroClass(this.state).kind;
+      const sk = SKILLS[kind];
+      this.skillCd = sk.cooldown;
+      const injury = this.injured ? BALANCE.hero.injuryAtkMul : 1;
+      const hits: { damage: number; crit: boolean }[] = [];
+      for (let i = 0; i < sk.hits; i++) {
+        const crit = this.rng.chance(this.stats.crit);
+        const damage = this.stats.atk * sk.perHit * injury * (crit ? this.stats.critMul : 1);
+        hits.push({ damage, crit });
+        m.hp -= damage;
+      }
+      const killed = m.hp <= 0;
+      ev.push({ type: 'skill', kind, hits, killed });
+      if (killed) {
+        this.onKill(ev, m);
+        return ev;
+      }
+    }
 
     if (m.boss) {
       this.bossTimeLeft -= dt;

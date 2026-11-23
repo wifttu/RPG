@@ -99,6 +99,8 @@ export const BALANCE = {
     adReward: 10,
   },
   ads: {
+    /** 하루 광고 보상 한도 (무한 보석 방지) */
+    dailyCap: { gold_boost: 6, gems: 5 } as Record<string, number>,
     goldBoostMinutes: 30,
     goldBoostMul: 2,
     offlineMul: 2,

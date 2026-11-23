@@ -12,6 +12,7 @@ import {
   RARITIES,
   SLOT_LABEL,
   SLOTS,
+  SKILLS,
   TALENT_ATK_BONUS,
   canMerge,
   heroClass,
@@ -90,6 +91,7 @@ export function gearHtml(core: Game, filter: Slot): string {
     <div class="card">
       <h3>${iconImg('atk')} ${cls.name} <small>전투력 <b data-b="power" style="color:var(--gold)"></b></small></h3>
       <p class="small muted" style="margin:0 0 6px">${cls.desc}</p>
+      <p class="small" style="margin:0 0 6px">스킬 <b style="color:var(--gold)">${SKILLS[cls.kind].name}</b> <span class="muted">— ${SKILLS[cls.kind].desc}</span></p>
       <p class="small" style="margin:0">재능: <b>${TALENT_LABEL[talent]}</b> ${
         match
           ? `<span class="rec">재능 일치 · 공격력 +${Math.round((TALENT_ATK_BONUS - 1) * 100)}%</span>`

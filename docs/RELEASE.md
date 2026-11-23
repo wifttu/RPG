@@ -42,6 +42,10 @@
 - ✅ 시간 조작 방지 (시계 되돌림 감지, 서버 시간 연결 지점 `clock.setServerTime`)
 - ⬜ 클라우드 저장: Google Play 게임즈 서비스 저장 기능 또는 Firebase. 정하면 연결해 드려요.
 
+## 5.5 알림
+
+- ✅ 로컬 알림 (`@capacitor/local-notifications`): 서버·계정 없이 동작. 정확한 알람 권한은 제거해 둠(Play 정책).
+
 ## 6. 분석
 
 - ✅ 게임 안 행동 기록 (`src/core/analytics.ts`, 상점 → 개발용 → 플레이 기록)

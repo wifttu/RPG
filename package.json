@@ -1,7 +1,7 @@
 {
   "name": "heirs-idle-rpg",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "계승자들 - 가문을 이어가는 픽셀 방치형 RPG",
   "type": "module",
   "scripts": {
@@ -19,6 +19,7 @@
     "@capacitor-community/admob": "^8.3.0",
     "@capacitor/android": "^8.6.0",
     "@capacitor/core": "^8.6.0",
+    "@capacitor/local-notifications": "^8.3.1",
     "galmuri": "2.40.3",
     "phaser": "4.2.1"
   },

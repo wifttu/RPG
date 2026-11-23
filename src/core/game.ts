@@ -13,6 +13,7 @@ import { track } from './analytics';
 import { clock, isRollback, markSeen } from './clock';
 import { claimAttendance, claimMission, claimMonthly, grantReward, rolloverDaily, type Mission, type Reward } from './daily';
 import { buyHeirloom } from './heirloom';
+import { EVENT_RULES, pickFieldEvent, resolveEvent, type StoryEvent } from './events';
 import { autoEquip } from './equip';
 import { drawGacha, equip, merge, mergeAll, parseKey, tierLabel, type DrawResult, type ItemKey } from './gear';
 import { grantProduct } from './products';
@@ -27,6 +28,8 @@ interface GameEvents {
   battle: BattleEvent[];
   change: void;
   retirementDue: void;
+  /** 이야기 사건 발생 (화면이 선택지를 띄운다) */
+  story: StoryEvent;
   newGeneration: { fameEarned: number };
 }
 
@@ -40,6 +43,9 @@ export class Game {
   retiring = false;
   private listeners: { [K in keyof GameEvents]?: Listener<GameEvents[K]>[] } = {};
   private saveTimer = 0;
+  private eventTimer = 0;
+  /** 화면에 떠 있는 사건 (선택 전) */
+  pendingStory: StoryEvent | null = null;
   timeScale = 1;
 
   /** 이번 접속에서 시계를 뒤로 돌린 게 감지됐는지 */
@@ -124,6 +130,7 @@ export class Game {
 
     this.saveTimer += dtRaw;
     if (this.saveTimer > 5) this.save(now);
+    this.maybeStory(dtRaw, now);
   }
 
   save(now = clock.now()): void {
@@ -172,6 +179,40 @@ export class Game {
       this.save();
     }
     return ok;
+  }
+
+  /** 가끔 이야기 사건이 일어난다 (튜토리얼 '가주의 일생' 이후, 최소 6분 간격) */
+  private maybeStory(dtRaw: number, now: number): void {
+    this.eventTimer += dtRaw * Math.max(1, this.timeScale);
+    if (this.eventTimer < EVENT_RULES.checkEverySec) return;
+    this.eventTimer = 0;
+    if (this.pendingStory || this.retiring || !(this.state.tutorial ?? []).includes('age')) return;
+    const gap = (now - this.state.events.lastAt) / 1000;
+    if (gap * Math.max(1, this.timeScale) < EVENT_RULES.minGapSec) return;
+    if (!this.rng.chance(EVENT_RULES.chance)) return;
+    this.state.events.lastAt = now;
+    this.pendingStory = pickFieldEvent(this.state, this.rng);
+    track('story', { id: this.pendingStory.id });
+    this.emit('story', this.pendingStory);
+  }
+
+  /** 개발용: 바로 사건 일으키기 */
+  triggerStory(): void {
+    if (this.pendingStory) return;
+    this.pendingStory = pickFieldEvent(this.state, this.rng);
+    this.emit('story', this.pendingStory);
+  }
+
+  resolveStory(choice: number, now = clock.now()): string {
+    const ev = this.pendingStory;
+    if (!ev) return '';
+    const text = resolveEvent(this.state, ev, choice, this.rng, now);
+    track('story_choice', { id: ev.id, choice });
+    this.pendingStory = null;
+    this.sim.refreshStats();
+    this.emit('change', undefined);
+    this.save(now);
+    return text;
   }
 
   /** 장비 뽑기 (free: 하루 한 번 광고 무료) */

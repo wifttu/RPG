@@ -106,7 +106,10 @@ export type SfxName =
   | 'click'
   | 'reward'
   | 'fanfare'
-  | 'retire';
+  | 'retire'
+  | 'whirl'
+  | 'volley'
+  | 'meteor';
 
 type Sfx = (ctx: Ctx, out: AudioNode, t: number, p: number) => void;
 
@@ -167,6 +170,20 @@ export const SFX: Record<SfxName, Sfx> = {
       ['C3', 0.72, 0.6],
     ] as [string, number, number][])
       tone(c, o, t + at, { type: 'triangle', freq: note(n), dur: d, vol: 0.2 });
+  },
+  whirl: (c, o, t) => {
+    noise(c, o, t, { dur: 0.35, vol: 0.16, freq: 600, freqEnd: 4000 });
+    tone(c, o, t, { type: 'sawtooth', freq: 180, freqEnd: 720, dur: 0.3, vol: 0.08 });
+    tone(c, o, t + 0.28, { type: 'square', freq: 880, freqEnd: 220, dur: 0.12, vol: 0.12 });
+  },
+  volley: (c, o, t) => {
+    for (let i = 0; i < 5; i++) noise(c, o, t + i * 0.06, { dur: 0.05, vol: 0.1, freq: 3200, freqEnd: 1600 });
+    tone(c, o, t, { type: 'triangle', freq: note('E6'), dur: 0.08, vol: 0.08 });
+  },
+  meteor: (c, o, t) => {
+    tone(c, o, t, { type: 'sawtooth', freq: 1200, freqEnd: 120, dur: 0.45, vol: 0.07 });
+    noise(c, o, t + 0.4, { dur: 0.5, vol: 0.28, freq: 400, freqEnd: 80, type: 'lowpass' });
+    tone(c, o, t + 0.4, { type: 'square', freq: 90, freqEnd: 40, dur: 0.4, vol: 0.18 });
   },
   retire: (c, o, t) => {
     ['E5', 'C5', 'G4', 'C5'].forEach((n, i) =>
