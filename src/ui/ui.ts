@@ -2,7 +2,7 @@ import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
-import { houseBest, isBossStage, isMarchStage, monstersInStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
+import { bossTimeLimit, houseBest, isBossStage, isMarchStage, monstersInStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
 import type { Game } from '../core/game';
 import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
@@ -93,11 +93,15 @@ export class UI {
     this.core.on('battle', (evs) => {
       for (const e of evs) {
         if (e.type === 'kill') this.pulse('.cur.gold');
-        if (e.type === 'wall') {
-          this.toast(`${e.stage}스테이지에서 막혔어요. 머물면서 골드를 모아요 — 수련·가보로 강해지면 자동으로 다시 도전해요`, 3600);
-          track('wall', { stage: e.stage, gen: this.core.state.hero.generation });
+        if (e.type === 'bossFail') {
+          this.toast(
+            this.core.state.autoBoss
+              ? `${e.reason === 'timeout' ? '시간 초과!' : '쓰러졌어요!'} 잡몹을 잡으며 골드를 모아요 — 수련으로 강해지면 자동으로 다시 도전해요`
+              : `${e.reason === 'timeout' ? '시간 초과!' : '쓰러졌어요!'} 준비되면 '보스 도전'을 눌러 주세요`,
+            3200,
+          );
+          track('boss_fail', { stage: e.stage, reason: e.reason, gen: this.core.state.hero.generation });
         }
-        if (e.type === 'retry') this.toast(`강해졌어요! ${e.stage}스테이지에 다시 도전해요`);
       }
     });
     this.core.on('newGeneration', () => this.renderPanel());
@@ -108,11 +112,15 @@ export class UI {
       audio.play('click');
       this.openSettings();
     });
-    $('[data-stay]').addEventListener('click', (e) => {
+    $('[data-boss]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.core.challengeBoss()) audio.play('boss');
+    });
+    $('[data-auto]').addEventListener('click', (e) => {
       e.stopPropagation();
       audio.play('click');
-      this.core.setStay(false);
-      this.toast(`${this.core.sim.wallStage}스테이지에 다시 도전해요`);
+      this.core.setAutoBoss(!this.core.state.autoBoss);
+      this.toast(this.core.state.autoBoss ? '자동 도전: 게이지가 차면 바로 보스에 도전해요' : '자동 도전 끔: 잡몹만 계속 잡아요 (보스 도전은 버튼으로)');
     });
     this.tutorial = new Tutorial(this.core, {
       modalOpen: () => this.modalOpen,
@@ -174,9 +182,12 @@ export class UI {
         <div class="stage-chip" data-b="stage"></div>
         <div class="pips" data-b="pips"></div>
         <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
+        <div class="boss-ctl">
+          <button class="boss-btn" data-boss hidden>보스 도전 ▶</button>
+          <button class="auto-chip" data-auto></button>
+        </div>
         <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
         <div class="status-chips">
-          <button class="stay-chip" data-stay hidden></button>
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
         </div>
       </div>
@@ -220,33 +231,42 @@ export class UI {
     $('[data-b="retireMark"]').style.left = `${((BALANCE.time.retireMinAge - start) / (stats.lifespan - start)) * 100}%`;
 
     // 전투 오버레이
-    const boss = isBossStage(state.stage);
+    const sim = this.core.sim;
+    const regionStage = isBossStage(state.stage);
     const best = houseBest(state);
-    const stageHtml = boss
-      ? `<span class="boss">BOSS</span> 스테이지 ${state.stage}`
+    const fighting = !!sim.monster?.boss;
+    const stageHtml = fighting
+      ? `<span class="boss">${regionStage ? '지역 보스' : 'BOSS'}</span> 스테이지 ${state.stage}`
       : isMarchStage(state.stage, best)
         ? `스테이지 ${state.stage} <span class="march">빠른 진군</span>`
-        : `스테이지 ${state.stage}`;
+        : `스테이지 ${state.stage}${regionStage ? ' <span class="boss">★</span>' : ''}`;
     const chip = $('[data-b="stage"]');
     if (chip.innerHTML !== stageHtml) chip.innerHTML = stageHtml;
     const pips = $('[data-b="pips"]');
     const total = monstersInStage(state.stage, best);
-    const html = boss ? '' : Array.from({ length: total }, (_, i) => `<i class="${i < this.core.sim.killsInStage ? 'on' : ''}"></i>`).join('');
+    const html = fighting ? '' : Array.from({ length: total }, (_, i) => `<i class="${i < sim.killsInStage ? 'on' : ''}"></i>`).join('');
     if (pips.innerHTML !== html) pips.innerHTML = html;
     const bt = $('[data-b="bossTimer"]');
-    bt.hidden = !(boss && this.core.sim.monster);
-    if (!bt.hidden) (bt.firstElementChild as HTMLElement).style.width = `${(this.core.sim.bossTimeLeft / BALANCE.monster.bossTimeLimit) * 100}%`;
+    bt.hidden = !fighting;
+    if (!bt.hidden) (bt.firstElementChild as HTMLElement).style.width = `${(sim.bossTimeLeft / bossTimeLimit(state.stage)) * 100}%`;
+    // 보스 도전 버튼 / 자동 도전
+    const bossBtn = $<HTMLButtonElement>('[data-boss]');
+    const showBtn = sim.gaugeFull && !sim.bossActive && !isMarchStage(state.stage, best);
+    bossBtn.hidden = !showBtn;
+    if (showBtn) {
+      const label = state.autoBoss && sim.waitingToRetry ? '보스 도전 ▶ (자동: 강해지면)' : `${regionStage ? '지역 보스' : '보스'} 도전 ▶`;
+      if (bossBtn.textContent !== label) bossBtn.textContent = label;
+      bossBtn.disabled = sim.dead;
+    }
+    const auto = $<HTMLButtonElement>('[data-auto]');
+    const autoTxt = state.autoBoss ? '자동 도전 켬' : '자동 도전 끔';
+    if (auto.textContent !== autoTxt) auto.textContent = autoTxt;
+    auto.classList.toggle('off', !state.autoBoss);
     const boostLeft = state.boostUntil - now;
     const boostEl = $('[data-b="boost"]');
     boostEl.hidden = boostLeft <= 0;
     if (boostLeft > 0) boostEl.textContent = `골드 x2 · ${fmtDuration(boostLeft / 1000)}`;
-    // 머물기 / 부상
-    const stay = $<HTMLButtonElement>('[data-stay]');
-    stay.hidden = !state.stayMode || boss;
-    if (state.stayMode) {
-      const t = `머무는 중 · ${this.core.sim.wallStage}스테이지 도전 ▶`;
-      if (stay.textContent !== t) stay.textContent = t;
-    }
+    // 부상
     $('[data-b="injury"]').hidden = !this.core.sim.injured;
     // 스킬 쿨타임
     const sk = SKILLS[heroClass(state).kind];

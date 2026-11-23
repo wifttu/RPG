@@ -22,27 +22,67 @@ import { computeStats } from '../src/core/stats';
 const DAY = 86_400_000;
 const T0 = new Date(2026, 10, 23, 12).getTime();
 
-describe('벽과 머물기', () => {
-  it('같은 스테이지에서 3번 실패하면 머물기, 강해지면 자동으로 다시 도전', () => {
-    const s = createNewGame(7, 0);
-    s.stage = 10; // 1대 맨손으로는 못 넘는 보스
-    s.hero.maxStage = 10;
-    const sim = new BattleSim(s, new Rng(7));
+describe('보스 도전', () => {
+  const run = (sim: BattleSim, sec: number) => {
     const ev: BattleEvent[] = [];
-    for (let t = 0; t < 600 && !s.stayMode; t += 0.05) ev.push(...sim.tick(0.05, 0));
-    expect(s.stayMode).toBe(true);
-    expect(ev.some((e) => e.type === 'wall')).toBe(true);
-    const stayStage = s.stage;
-    // 머무는 동안은 앞으로 가지 않는다
-    for (let t = 0; t < 30; t += 0.05) sim.tick(0.05, 0);
-    expect(s.stage).toBeLessThanOrEqual(stayStage);
-    // 크게 강해지면 다시 도전
-    s.gold = 1e9;
-    for (let i = 0; i < 60; i++) buyUpgrade(s, 'atk'), buyUpgrade(s, 'hp');
-    const ev2: BattleEvent[] = [];
-    for (let t = 0; t < 120; t += 0.05) ev2.push(...sim.tick(0.05, 0));
-    expect(ev2.some((e) => e.type === 'retry')).toBe(true);
-    expect(s.hero.maxStage).toBeGreaterThan(10);
+    for (let t = 0; t < sec; t += 0.05) ev.push(...sim.tick(0.05, 0));
+    return ev;
+  };
+
+  it('잡몹 5마리로 게이지가 차고, 자동 도전이면 보스가 나와 이기면 다음 스테이지', () => {
+    const s = createNewGame(7, 0);
+    s.upgrades = { atk: 20, hp: 20, spd: 0 };
+    const sim = new BattleSim(s, new Rng(7));
+    const ev = run(sim, 40);
+    expect(ev.some((e) => e.type === 'bossReady')).toBe(true);
+    expect(ev.some((e) => e.type === 'bossStart')).toBe(true);
+    expect(s.stage).toBeGreaterThan(1);
+  });
+
+  it('자동 도전을 끄면 게이지가 차도 잡몹만 잡고, 버튼(challenge)으로 도전한다', () => {
+    const s = createNewGame(8, 0);
+    s.upgrades = { atk: 20, hp: 20, spd: 0 };
+    s.autoBoss = false;
+    const sim = new BattleSim(s, new Rng(8));
+    const ev = run(sim, 60);
+    expect(sim.gaugeFull).toBe(true);
+    expect(ev.some((e) => e.type === 'bossStart')).toBe(false);
+    expect(s.stage).toBe(1);
+    const gold = s.gold;
+    run(sim, 10);
+    expect(s.gold).toBeGreaterThan(gold); // 계속 잡몹 사냥 = 골드 파밍
+    expect(sim.challenge()).toBe(true);
+    const ev2 = run(sim, 25);
+    expect(ev2.some((e) => e.type === 'bossStart')).toBe(true);
+    expect(s.stage).toBe(2);
+  });
+
+  it('보스에게 지면 스테이지는 그대로, 자동 도전은 강해진 뒤에 다시', () => {
+    const s = createNewGame(9, 0);
+    s.stage = 20; // 공격력 수련 없이는 30초 안에 못 잡는 지역 보스
+    s.hero.maxStage = 20;
+    s.upgrades = { atk: 0, hp: 60, spd: 0 }; // 잡몹은 버틴다
+    const sim = new BattleSim(s, new Rng(9));
+    const ev = run(sim, 120);
+    expect(ev.some((e) => e.type === 'bossFail')).toBe(true);
+    expect(s.stage).toBe(20);
+    expect(sim.gaugeFull).toBe(true);
+    expect(sim.waitingToRetry).toBe(true);
+    // 강해지면 자동으로 다시 도전해서 통과
+    s.gold = 1e12;
+    for (let i = 0; i < 80; i++) buyUpgrade(s, 'atk');
+    const ev2 = run(sim, 60);
+    expect(ev2.some((e) => e.type === 'bossStart')).toBe(true);
+    expect(s.hero.maxStage).toBeGreaterThan(20);
+  });
+
+  it('잡몹에게 쓰러지면 한 스테이지 아래로', () => {
+    const s = createNewGame(10, 0);
+    s.stage = 30;
+    const sim = new BattleSim(s, new Rng(10));
+    const ev = run(sim, 30);
+    expect(ev.some((e) => e.type === 'heroDeath')).toBe(true);
+    expect(s.stage).toBeLessThan(30);
   });
 
   it('쓰러지면 잠시 부상 (공격력 감소)', () => {

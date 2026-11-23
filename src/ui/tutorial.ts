@@ -46,11 +46,12 @@ const STEPS: Step[] = [
   },
   {
     id: 'boss',
-    when: (g) => g.state.hero.maxStage >= BALANCE.monster.bossEvery,
-    target: '#stage-wrap',
-    title: '보스 등장!',
+    when: (g) => g.sim.gaugeFull || g.state.hero.maxStage >= 2,
+    target: '.boss-ctl',
+    title: '보스 도전',
     text: () =>
-      `${BALANCE.monster.bossEvery}스테이지마다 보스가 나와요. <b>${BALANCE.monster.bossTimeLimit}초</b> 안에 쓰러뜨리지 못하면 한 단계 물러나요.<br>막히면 골드를 모아 수련하세요.`,
+      `잡몹을 ${BALANCE.monster.perStage}마리 잡으면 <b>보스 도전</b>을 할 수 있어요. 제한 시간 안에 보스를 쓰러뜨리면 다음 스테이지로!<br>` +
+      '<b>자동 도전</b>을 끄면 보스에 도전하지 않고 잡몹만 계속 잡아요 (골드 모으기). 10스테이지마다 강한 <b>지역 보스</b>가 나와요.',
     button: '확인',
   },
   {

@@ -52,8 +52,10 @@ export interface GameState {
   heirlooms: Record<HeirloomKind, number>;
   /** 유산석: 보스가 떨어뜨림, 가보 강화에 사용 (세대를 넘어 유지) */
   legacy: number;
-  /** 벽에 막히면 이 스테이지에 머물며 골드를 모은다 */
+  /** (v0.2) 머물기 — v0.5부터 쓰지 않음, 예전 저장 호환용 */
   stayMode: boolean;
+  /** 보스 자동 도전 (끄면 게이지가 차도 잡몹만 계속 잡는다) */
+  autoBoss: boolean;
   progress: Progress;
   daily: DailyState;
   attendance: { count: number; lastDay: string | null };
@@ -126,6 +128,7 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.heirlooms ??= { sword: 0, shield: 0, ring: 0 };
   s.legacy ??= 0;
   s.stayMode ??= false;
+  s.autoBoss ??= true;
   const base: Progress = {
     bossKills: 0,
     deaths: 0,

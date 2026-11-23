@@ -19,23 +19,38 @@ export function buyUpgrade(state: GameState, kind: UpgradeKind): boolean {
   return true;
 }
 
+/** 몬스터 등급: 잡몹 / 스테이지 보스(정예) / 지역 보스 */
+export type Rank = 'mob' | 'elite' | 'region';
+
+/** 지역 보스가 나오는 스테이지 (10, 20, 30 …) */
 export function isBossStage(stage: number): boolean {
   return stage % BALANCE.monster.bossEvery === 0;
 }
 
-export function monsterHp(stage: number): number {
-  const m = BALANCE.monster;
-  return m.baseHp * m.hpGrowth ** (stage - 1) * (isBossStage(stage) ? m.bossHpMul : 1);
+/** 이 스테이지의 보스 등급 */
+export function bossRank(stage: number): Rank {
+  return isBossStage(stage) ? 'region' : 'elite';
 }
 
-export function monsterAtk(stage: number): number {
+const rankMul = (rank: Rank, elite: number, region: number) => (rank === 'region' ? region : rank === 'elite' ? elite : 1);
+
+export function monsterHp(stage: number, rank: Rank = 'mob'): number {
   const m = BALANCE.monster;
-  return m.baseAtk * m.atkGrowth ** (stage - 1) * (isBossStage(stage) ? m.bossAtkMul : 1);
+  return m.baseHp * m.hpGrowth ** (stage - 1) * rankMul(rank, m.eliteHpMul, m.bossHpMul);
 }
 
-export function monsterGold(stage: number): number {
+export function monsterAtk(stage: number, rank: Rank = 'mob'): number {
   const m = BALANCE.monster;
-  return m.baseGold * m.goldGrowth ** (stage - 1) * (isBossStage(stage) ? m.bossGoldMul : 1);
+  return m.baseAtk * m.atkGrowth ** (stage - 1) * rankMul(rank, m.eliteAtkMul, m.bossAtkMul);
+}
+
+export function monsterGold(stage: number, rank: Rank = 'mob'): number {
+  const m = BALANCE.monster;
+  return m.baseGold * m.goldGrowth ** (stage - 1) * rankMul(rank, m.eliteGoldMul, m.bossGoldMul);
+}
+
+export function bossTimeLimit(stage: number): number {
+  return isBossStage(stage) ? BALANCE.monster.bossTimeLimit : BALANCE.monster.eliteTimeLimit;
 }
 
 /** 가문 역대 최고 스테이지 (현재 가주 포함) */
@@ -43,13 +58,16 @@ export function houseBest(state: Pick<GameState, 'lineage' | 'hero'>): number {
   return Math.max(state.hero.maxStage, ...state.lineage.map((l) => l.maxStage));
 }
 
-/** 선대가 정복한 땅(가문 최고 기록의 80% 아래)은 빠르게 지나간다 */
+/**
+ * 선대가 정복한 땅(가문 최고 기록의 80% 아래)은 빠르게 지나간다:
+ * 잡몹 1마리만 잡으면 스테이지 보스 없이 다음으로. (지역 보스는 그대로 싸운다)
+ */
 export function isMarchStage(stage: number, best: number): boolean {
   return !isBossStage(stage) && stage < Math.floor(best * BALANCE.march.ratio);
 }
 
+/** 보스 도전에 필요한 처치 수 (게이지 칸 수) */
 export function monstersInStage(stage: number, best = 0): number {
-  if (isBossStage(stage)) return 1;
   return isMarchStage(stage, best) ? 1 : BALANCE.monster.perStage;
 }
 
@@ -62,7 +80,7 @@ export function fameForRetirement(maxStage: number, fameMul = 1): number {
 /** 초당 골드 기대값 (오프라인 보상, HUD 표시용) */
 export function estimateGoldPerSec(state: GameState, now = Date.now()): number {
   const s = computeStats(state, now);
-  const stage = Math.max(1, isBossStage(state.stage) ? state.stage - 1 : state.stage);
+  const stage = Math.max(1, state.stage);
   const killTime = Math.max(1 / s.atkPerSec, monsterHp(stage) / expectedDps(s)) + BALANCE.monster.spawnGap;
   return (monsterGold(stage) * s.goldMul) / killTime;
 }

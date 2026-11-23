@@ -260,11 +260,19 @@ export class Game {
     this.save();
   }
 
-  /** 벽 앞에서 머물기/도전 */
-  setStay(on: boolean): void {
-    this.sim.setStay(on);
-    track(on ? 'stay_on' : 'stay_off', { stage: this.state.stage });
+  /** '보스 도전' 버튼 */
+  challengeBoss(): boolean {
+    const ok = this.sim.challenge();
+    if (ok) track('boss_challenge', { stage: this.state.stage });
+    return ok;
+  }
+
+  /** 보스 자동 도전 켜기/끄기 (끄면 잡몹만 계속 사냥) */
+  setAutoBoss(on: boolean): void {
+    this.state.autoBoss = on;
+    track(on ? 'auto_boss_on' : 'auto_boss_off', { stage: this.state.stage });
     this.emit('change', undefined);
+    this.save();
   }
 
   claimAttendance(now = clock.now()): Reward | null {

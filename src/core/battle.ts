@@ -1,5 +1,16 @@
 import { BALANCE } from '../config/balance';
-import { houseBest, isBossStage, isMarchStage, monsterAtk, monsterGold, monsterHp, monstersInStage } from './economy';
+import {
+  bossRank,
+  bossTimeLimit,
+  houseBest,
+  isBossStage,
+  isMarchStage,
+  monsterAtk,
+  monsterGold,
+  monsterHp,
+  monstersInStage,
+  type Rank,
+} from './economy';
 import { heroClass, SKILLS, type WeaponKind } from './gear';
 import { legacyForBoss } from './heirloom';
 import type { Rng } from './rng';
@@ -11,7 +22,9 @@ export type MonsterKind = 'slime' | 'mushroom' | 'bat' | 'beetle' | 'golem' | 'y
 export interface Monster {
   id: number;
   kind: MonsterKind;
+  /** 스테이지 보스(정예) 또는 지역 보스 */
   boss: boolean;
+  rank: Rank;
   hp: number;
   maxHp: number;
   atk: number;
@@ -28,10 +41,12 @@ export type BattleEvent =
   | { type: 'respawn' }
   /** 직업 스킬 */
   | { type: 'skill'; kind: WeaponKind; hits: { damage: number; crit: boolean }[]; killed: boolean }
-  /** 같은 곳에서 계속 실패 → 머물기 시작 */
-  | { type: 'wall'; stage: number }
-  /** 머무는 동안 충분히 강해져서 다시 도전 */
-  | { type: 'retry'; stage: number };
+  /** 게이지가 가득 차서 보스에 도전할 수 있다 */
+  | { type: 'bossReady'; stage: number }
+  /** 보스 도전 시작 */
+  | { type: 'bossStart'; stage: number; rank: Rank }
+  /** 보스 도전 실패 → 같은 스테이지에서 계속 사냥 */
+  | { type: 'bossFail'; stage: number; reason: 'death' | 'timeout' };
 
 export const BIOME_COUNT = 5;
 export const STAGES_PER_BIOME = 20;
@@ -53,6 +68,13 @@ export const BIOME_BOSS: MonsterKind[] = ['golem', 'golem', 'golem', 'yeti', 'dr
 /**
  * 전투 시뮬레이션. 화면(Phaser)과 분리되어 있어서 테스트·오프라인 계산·서버 검증에 그대로 쓸 수 있다.
  * 화면은 tick()이 돌려주는 이벤트를 받아서 연출만 한다.
+ *
+ * 진행 방식
+ * - 스테이지마다 잡몹을 잡으면 처치 게이지가 찬다 (5마리).
+ * - 게이지가 차면 보스 도전 가능: 자동 도전이 켜져 있으면 바로, 꺼져 있으면 challenge() 를 부를 때까지 잡몹 사냥을 계속한다.
+ * - 보스(매 스테이지 정예, 10스테이지마다 지역 보스)를 제한 시간 안에 잡으면 다음 스테이지.
+ * - 지면 스테이지는 그대로, 게이지도 가득 찬 채로 잡몹 사냥을 계속한다. 자동 도전은 전투력이 1.15배 오른 뒤 다시 시도.
+ * - 잡몹에게 쓰러지면(너무 강한 곳) 한 스테이지 아래로.
  */
 export class BattleSim {
   heroHp = 1;
@@ -67,10 +89,10 @@ export class BattleSim {
   private nextId = 1;
   private time = 0;
   private injuredUntil = 0;
-  /** 스테이지별 실패 횟수 (이번 가주 동안) */
-  private fails = new Map<number, number>();
-  /** 머물기 시작할 때의 전투력 */
-  private stayPower = 0;
+  /** 다음에 나올 몬스터가 보스인지 (도전 버튼 또는 자동 도전) */
+  private bossQueued = false;
+  /** 보스에게 진 뒤, 자동 도전을 다시 시작할 전투력 */
+  private retryPower = 0;
   /** 스킬 대기 시간 (처음에는 3초 뒤 바로 보여 준다) */
   skillCd = 3;
 
@@ -96,9 +118,24 @@ export class BattleSim {
     return this.time < this.injuredUntil && !this.dead;
   }
 
-  /** 막힌 스테이지 (머무는 중일 때 다음 목표) */
-  get wallStage(): number {
-    return this.state.stage + 1;
+  /** 처치 게이지 칸 수 */
+  get gaugeMax(): number {
+    return monstersInStage(this.state.stage, houseBest(this.state));
+  }
+
+  /** 게이지가 가득 찼는지 */
+  get gaugeFull(): boolean {
+    return this.killsInStage >= this.gaugeMax;
+  }
+
+  /** 지금 보스와 싸우는 중인지 (또는 곧 나오는지) */
+  get bossActive(): boolean {
+    return !!this.monster?.boss || this.bossQueued;
+  }
+
+  /** 보스에게 졌고, 자동 도전이 강해지기를 기다리는 중 */
+  get waitingToRetry(): boolean {
+    return this.retryPower > 0 && this.power() < this.retryPower;
   }
 
   /** 전투력 지표: 초당 피해 × 체력 */
@@ -106,11 +143,16 @@ export class BattleSim {
     return this.stats.atk * this.stats.atkPerSec * this.stats.maxHp;
   }
 
-  /** 머물기 켜고 끄기 (화면 버튼) */
-  setStay(on: boolean): void {
-    this.state.stayMode = on;
-    if (on) this.stayPower = this.power();
-    else this.fails.delete(this.state.stage + 1);
+  /** '보스 도전' 버튼. 게이지가 가득 차야 한다. 싸우던 잡몹 대신 바로 보스가 나온다. */
+  challenge(): boolean {
+    if (!this.gaugeFull || this.bossActive || this.dead) return false;
+    this.retryPower = 0;
+    this.bossQueued = true;
+    if (this.monster && !this.monster.boss) {
+      this.monster = null;
+      this.spawnTimer = 0.35;
+    }
+    return true;
   }
 
   refreshStats(now = Date.now()): void {
@@ -118,6 +160,13 @@ export class BattleSim {
     this.stats = computeStats(this.state, now);
     // 체력 업그레이드/나이 변화 시 비율 유지
     if (prevMax > 0) this.heroHp = Math.min(this.stats.maxHp, (this.heroHp / prevMax) * this.stats.maxHp);
+  }
+
+  /** 자동 도전 조건: 켜져 있고, 진 뒤라면 충분히 강해졌을 때. 선대가 정복한 땅의 지역 보스는 항상 자동 */
+  private autoChallengeOk(): boolean {
+    const march = this.state.stage < Math.floor(houseBest(this.state) * BALANCE.march.ratio);
+    if (march) return true;
+    return this.state.autoBoss && this.power() >= this.retryPower;
   }
 
   tick(dt: number, now = Date.now()): BattleEvent[] {
@@ -135,12 +184,21 @@ export class BattleSim {
     }
 
     if (!this.monster) {
+      // 게이지가 찼는데 아직 보스를 안 불렀다면 자동 도전 확인
+      if (!this.bossQueued && this.gaugeFull && this.autoChallengeOk()) {
+        this.bossQueued = true;
+        this.retryPower = 0;
+      }
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.monster = this.makeMonster();
+        this.monster = this.makeMonster(this.bossQueued);
+        this.bossQueued = false;
         this.heroCd = 0.25;
         this.monsterCd = BALANCE.monster.attackInterval * 0.6;
-        if (this.monster.boss) this.bossTimeLeft = BALANCE.monster.bossTimeLimit;
+        if (this.monster.boss) {
+          this.bossTimeLeft = bossTimeLimit(this.state.stage);
+          ev.push({ type: 'bossStart', stage: this.state.stage, rank: this.monster.rank });
+        }
         ev.push({ type: 'spawn', monster: this.monster });
       }
       return ev;
@@ -173,7 +231,7 @@ export class BattleSim {
     if (m.boss) {
       this.bossTimeLeft -= dt;
       if (this.bossTimeLeft <= 0) {
-        this.fallBack(ev, 'timeout');
+        this.bossFailed(ev, 'timeout');
         return ev;
       }
     }
@@ -202,7 +260,8 @@ export class BattleSim {
         this.state.progress.deaths++;
         this.respawnTimer = BALANCE.hero.respawnSec;
         this.injuredUntil = this.time + BALANCE.hero.respawnSec + BALANCE.hero.injurySec;
-        this.fallBack(ev, 'death');
+        if (m.boss) this.bossFailed(ev, 'death');
+        else this.fallBack(ev);
       }
     }
     return ev;
@@ -215,46 +274,52 @@ export class BattleSim {
     this.monster = null;
     this.state.daily.kills++;
     let legacy = 0;
-    if (m.boss) {
-      legacy = legacyForBoss(this.state.stage);
-      this.state.legacy += legacy;
-      this.state.progress.bossKills++;
-      this.state.daily.bosses++;
-    }
     const best = houseBest(this.state);
-    this.spawnTimer = isMarchStage(this.state.stage, best) ? BALANCE.march.spawnGap : BALANCE.monster.spawnGap;
-    this.killsInStage++;
-    ev.push({ type: 'kill', monster: m, gold, legacy });
-    if (this.killsInStage >= monstersInStage(this.state.stage, best)) {
-      // 스테이지 클리어 보상: 체력 회복
-      this.heroHp = this.stats.maxHp;
-      if (this.state.stayMode) {
-        // 머무는 중: 충분히 강해졌으면 다시 도전, 아니면 같은 스테이지 반복
-        if (this.power() >= this.stayPower * BALANCE.wall.retryPowerGain) {
-          this.state.stayMode = false;
-          ev.push({ type: 'retry', stage: this.state.stage + 1 });
-          this.setStage(this.state.stage + 1, ev, 'clear');
-        } else {
-          this.killsInStage = 0;
-        }
-      } else {
-        this.setStage(this.state.stage + 1, ev, 'clear');
+    if (m.boss) {
+      this.state.daily.bosses++;
+      this.state.progress.bossKills++;
+      if (m.rank === 'region') {
+        legacy = legacyForBoss(this.state.stage);
+        this.state.legacy += legacy;
       }
     }
+    this.spawnTimer = isMarchStage(this.state.stage, best) ? BALANCE.march.spawnGap : BALANCE.monster.spawnGap;
+    ev.push({ type: 'kill', monster: m, gold, legacy });
+
+    if (m.boss) {
+      // 보스 처치 → 다음 스테이지, 체력 회복
+      this.heroHp = this.stats.maxHp;
+      this.retryPower = 0;
+      this.setStage(this.state.stage + 1, ev, 'clear');
+      return;
+    }
+    const wasFull = this.gaugeFull;
+    this.killsInStage = Math.min(this.gaugeMax, this.killsInStage + 1);
+    if (this.gaugeFull && isMarchStage(this.state.stage, best)) {
+      // 정복한 땅: 스테이지 보스 없이 바로 다음으로
+      this.heroHp = this.stats.maxHp;
+      this.setStage(this.state.stage + 1, ev, 'clear');
+      return;
+    }
+    if (this.gaugeFull && !wasFull) ev.push({ type: 'bossReady', stage: this.state.stage });
   }
 
-  private fallBack(ev: BattleEvent[], reason: 'death' | 'timeout'): void {
+  /** 보스에게 짐: 스테이지는 그대로, 게이지도 가득 찬 채로 사냥을 계속한다 */
+  private bossFailed(ev: BattleEvent[], reason: 'death' | 'timeout'): void {
     this.monster = null;
-    const failed = this.state.stage;
-    const n = (this.fails.get(failed) ?? 0) + 1;
-    this.fails.set(failed, n);
-    if (n >= BALANCE.wall.failsToStay && !this.state.stayMode) {
-      this.state.stayMode = true;
-      this.stayPower = this.power();
-      ev.push({ type: 'wall', stage: failed });
-    }
+    this.bossQueued = false;
+    this.retryPower = this.power() * BALANCE.monster.retryPowerGain;
     this.spawnTimer = BALANCE.monster.spawnGap + (reason === 'death' ? BALANCE.hero.respawnSec : 0);
-    this.setStage(Math.max(1, this.state.stage - 1), ev, reason);
+    ev.push({ type: 'bossFail', stage: this.state.stage, reason });
+  }
+
+  /** 잡몹에게 쓰러짐: 너무 강한 곳이라 한 스테이지 아래로 */
+  private fallBack(ev: BattleEvent[]): void {
+    this.monster = null;
+    this.bossQueued = false;
+    this.spawnTimer = BALANCE.monster.spawnGap + BALANCE.hero.respawnSec;
+    if (this.state.stage > 1) this.setStage(this.state.stage - 1, ev, 'death');
+    else this.killsInStage = 0;
   }
 
   private setStage(stage: number, ev: BattleEvent[], reason: 'clear' | 'death' | 'timeout'): void {
@@ -264,11 +329,20 @@ export class BattleSim {
     ev.push({ type: 'stageChange', stage, boss: isBossStage(stage), reason });
   }
 
-  private makeMonster(): Monster {
+  private makeMonster(boss: boolean): Monster {
     const stage = this.state.stage;
-    const boss = isBossStage(stage);
-    const kind: MonsterKind = boss ? BIOME_BOSS[biomeOf(stage)] : this.rng.pick(BIOME_MONSTERS[biomeOf(stage)]);
-    const hp = monsterHp(stage);
-    return { id: this.nextId++, kind, boss, hp, maxHp: hp, atk: monsterAtk(stage), gold: monsterGold(stage) };
+    const rank: Rank = boss ? bossRank(stage) : 'mob';
+    const kind: MonsterKind = rank === 'region' ? BIOME_BOSS[biomeOf(stage)] : this.rng.pick(BIOME_MONSTERS[biomeOf(stage)]);
+    const hp = monsterHp(stage, rank);
+    return {
+      id: this.nextId++,
+      kind,
+      boss,
+      rank,
+      hp,
+      maxHp: hp,
+      atk: monsterAtk(stage, rank),
+      gold: monsterGold(stage, rank),
+    };
   }
 }

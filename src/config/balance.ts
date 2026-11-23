@@ -35,12 +35,6 @@ export const BALANCE = {
     injurySec: 6,
     injuryAtkMul: 0.75,
   },
-  wall: {
-    /** 같은 스테이지에서 이만큼 실패하면 자동으로 '머물기' */
-    failsToStay: 3,
-    /** 머무는 동안 전투력이 이 배율만큼 오르면 자동으로 다시 도전 */
-    retryPowerGain: 1.25,
-  },
   upgrades: {
     atk: { baseCost: 8, growth: 1.15, perLevel: 0.35, max: Infinity },
     hp: { baseCost: 8, growth: 1.15, perLevel: 0.4, max: Infinity },
@@ -56,13 +50,22 @@ export const BALANCE = {
     attackInterval: 1.5,
     baseGold: 3,
     goldGrowth: 1.13,
+    /** 처치 게이지: 이만큼 잡으면 보스 도전 가능 */
     perStage: 5,
     spawnGap: 0.7,
+    /** 스테이지 보스(정예): 매 스테이지 */
+    eliteHpMul: 2.5,
+    eliteAtkMul: 1.5,
+    eliteGoldMul: 5,
+    eliteTimeLimit: 20,
+    /** 지역 보스: 10스테이지마다 (골렘·설인·화염 용) */
     bossEvery: 10,
-    bossHpMul: 3.5,
+    bossHpMul: 5,
     bossAtkMul: 2,
-    bossGoldMul: 10,
+    bossGoldMul: 15,
     bossTimeLimit: 30,
+    /** 보스에게 지면, 전투력이 이 배율만큼 오른 뒤에 자동 도전 재개 */
+    retryPowerGain: 1.15,
   },
   fame: {
     /**
