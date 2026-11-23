@@ -143,7 +143,12 @@ describe('상품 (결제 후 지급)', () => {
     expect(canBuy(s, 'starter')).toBe(false);
     expect(grantProduct(s, 'starter', T0)).toBe(false);
     expect(adFree(s, T0)).toBe(false);
+    const before = s.gems;
     grantProduct(s, 'monthly', T0);
+    expect(s.gems).toBe(before + 300); // 월정액은 즉시 보석 300
+    const g2 = s.gems;
+    grantProduct(s, 'gems550', T0);
+    expect(s.gems).toBe(g2 + 550);
     expect(adFree(s, T0 + 29 * DAY)).toBe(true);
     expect(adFree(s, T0 + 31 * DAY)).toBe(false);
     grantProduct(s, 'noads', T0);
@@ -183,5 +188,24 @@ describe('기기 이전 코드', () => {
 describe('경제 기본', () => {
   it('수련 비용은 계속 오른다', () => {
     expect(upgradeCost('hp', 30)).toBeGreaterThan(upgradeCost('hp', 29));
+  });
+});
+
+describe('이름', () => {
+  it('후보끼리, 그리고 가문 사람과 이름이 겹치지 않는다', async () => {
+    const { makeChildCandidates, makeSpouseCandidates, takenNames } = await import('../src/core/lineage');
+    const s = createNewGame(21, 0);
+    const rng = new Rng(21);
+    for (let i = 0; i < 300; i++) {
+      const sp = makeSpouseCandidates(s, rng);
+      const ch = makeChildCandidates(s, sp[0], rng);
+      const names = [...sp, ...ch].map((c) => c.name);
+      const kids = ch.map((c) => c.name);
+      expect(new Set(sp.map((c) => c.name)).size).toBe(sp.length);
+      expect(new Set(kids).size).toBe(kids.length);
+      const taken = takenNames(s);
+      for (const n of names) expect(taken.has(n)).toBe(false);
+      expect(kids).not.toContain(sp[0].name);
+    }
   });
 });

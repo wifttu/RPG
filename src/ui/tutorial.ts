@@ -115,6 +115,8 @@ export class Tutorial {
   private bubble = document.createElement('div');
   private dim = document.createElement('div');
   private shownId: string | null = null;
+  /** 이 단계에서 탭을 이미 한 번 옮겨 줬는지 (사용자가 다른 탭으로 가면 다시 끌고 오지 않는다) */
+  private tabMoved = new Set<string>();
 
   constructor(
     private core: Game,
@@ -165,9 +167,15 @@ export class Tutorial {
     if (step.doneWhen?.(this.core, this.hooks.currentTab())) return this.complete(step.id);
     if (this.hooks.modalOpen() || !step.when(this.core)) return this.hide();
 
+    if (step.tab && !this.tabMoved.has(step.id)) {
+      this.tabMoved.add(step.id);
+      if (this.hooks.currentTab() !== step.tab) this.hooks.showTab(step.tab);
+    }
+    // 가리킬 대상이 지금 화면에 없으면 (다른 탭으로 갔을 때) 숨겼다가, 돌아오면 다시 보여 준다
+    if (step.target && !this.visibleTarget(step.target)) return this.hide();
+
     if (this.shownId !== step.id) {
       this.shownId = step.id;
-      if (step.tab && this.hooks.currentTab() !== step.tab) this.hooks.showTab(step.tab);
       this.render(step);
       audio.play('click');
       // 패널 안의 대상은 보이도록 스크롤
@@ -177,6 +185,13 @@ export class Tutorial {
       });
     }
     this.position();
+  }
+
+  private visibleTarget(sel: string): HTMLElement | null {
+    const t = document.querySelector<HTMLElement>(sel);
+    if (!t || !t.isConnected) return null;
+    const r = t.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 ? t : null;
   }
 
   private render(step: Step): void {
@@ -208,8 +223,8 @@ export class Tutorial {
       this.bubble.style.top = `${Math.max(16, vh / 2 - this.bubble.offsetHeight / 2)}px`;
       return;
     }
-    const t = document.querySelector<HTMLElement>(step.target);
-    if (!t) return;
+    const t = this.visibleTarget(step.target);
+    if (!t) return this.hide();
     const r = t.getBoundingClientRect();
     const pad = 4;
     Object.assign(this.ring.style, {

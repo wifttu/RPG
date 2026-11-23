@@ -6,7 +6,7 @@ import { houseBest, isBossStage, isMarchStage, monstersInStage, upgradeCost, est
 import type { Game } from '../core/game';
 import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
-import { fameMultiplier, lifeStage, upgradeMultiplier } from '../core/stats';
+import { computeStats, fameMultiplier, lifeStage } from '../core/stats';
 import { MUTATION_RARITY_TABLE, RARITY_LABEL, getTrait, traitsOfRarity, type Rarity } from '../core/traits';
 import { fmt, fmtDuration, fmtMul, fmtPct, josa } from './format';
 import { audio } from '../audio/audio';
@@ -14,7 +14,7 @@ import { Tutorial } from './tutorial';
 import { track, eventCounts } from '../core/analytics';
 import { clock } from '../core/clock';
 import { adFree, rewardText, type Mission, type Reward } from '../core/daily';
-import { HEIRLOOMS, heirloomCost, heirloomMultiplier, heirloomTitle } from '../core/heirloom';
+import { HEIRLOOMS, heirloomCost, heirloomTitle } from '../core/heirloom';
 import { PRODUCTS, canBuy, formatKrw } from '../core/products';
 import { importSaveCode } from '../core/save';
 import { createNewGame } from '../core/state';
@@ -565,12 +565,13 @@ export class UI {
         const maxed = lv >= max;
         const cost = upgradeCost(k, lv);
         this.set(`lv-${k}`, `Lv.${lv}`);
-        const cur = upgradeMultiplier(k, lv);
-        const next = upgradeMultiplier(k, lv + 1);
+        // 배율 대신 실제 능력치 숫자로 보여 준다 (예: 공격력 980 → 1,034)
+        const nextStats = computeStats({ ...state, upgrades: { ...state.upgrades, [k]: lv + 1 } });
+        const show = (st: typeof stats) => (k === 'atk' ? fmt(st.atk) : k === 'hp' ? fmt(st.maxHp) : `${st.atkPerSec.toFixed(2)}/초`);
         const eff = $(`[data-b="eff-${k}"]`, this.panel);
         const html = maxed
-          ? `${UPG_INFO[k].stat} x${cur.toFixed(2)} (최대)`
-          : `${UPG_INFO[k].stat} x${cur.toFixed(2)} → <em>x${next.toFixed(2)}</em>${(lv + 1) % BALANCE.upgrades.milestoneEvery === 0 && k !== 'spd' ? ' <em>돌파!</em>' : ''}`;
+          ? `${UPG_INFO[k].stat} ${show(stats)} (최대)`
+          : `${UPG_INFO[k].stat} ${show(stats)} → <em>${show(nextStats)}</em>${(lv + 1) % BALANCE.upgrades.milestoneEvery === 0 && k !== 'spd' ? ' <em>돌파!</em>' : ''}`;
         if (eff && eff.innerHTML !== html) eff.innerHTML = html;
         this.set(`cost-${k}`, maxed ? 'MAX' : fmt(cost));
         const btn = $<HTMLButtonElement>(`[data-upg="${k}"]`, this.panel);
@@ -583,7 +584,15 @@ export class UI {
         this.set(`hl-name-${h.kind}`, heirloomTitle(h.kind, lv));
         this.set(`hl-lv-${h.kind}`, `Lv.${lv}`);
         const eff = $(`[data-b="hl-eff-${h.kind}"]`, this.panel);
-        const html = `${h.stat} x${heirloomMultiplier(h.kind, lv).toFixed(2)} → <em>x${heirloomMultiplier(h.kind, lv + 1).toFixed(2)}</em>${(lv + 1) % 10 === 0 ? ' <em>돌파!</em>' : ''}`;
+        const nextState = { ...state, heirlooms: { ...state.heirlooms, [h.kind]: lv + 1 } };
+        const nextStats = computeStats(nextState);
+        const [label, cur, next] =
+          h.kind === 'sword'
+            ? ['공격력', fmt(stats.atk), fmt(nextStats.atk)]
+            : h.kind === 'shield'
+              ? ['체력', fmt(stats.maxHp), fmt(nextStats.maxHp)]
+              : ['초당 골드', fmt(estimateGoldPerSec(state)), fmt(estimateGoldPerSec(nextState))];
+        const html = `${label} ${cur} → <em>${next}</em>${(lv + 1) % 10 === 0 ? ' <em>돌파!</em>' : ''}`;
         if (eff && eff.innerHTML !== html) eff.innerHTML = html;
         this.set(`hl-cost-${h.kind}`, fmt(cost));
         const btn = $<HTMLButtonElement>(`[data-hl="${h.kind}"]`, this.panel);
@@ -660,23 +669,28 @@ export class UI {
         .then((ok) => (ok ? reward() : this.toast('광고를 끝까지 보면 보상을 받아요')));
       return;
     }
+    // 실제 앱에서는 AdMob 이 광고 길이(보통 15~30초)를 정한다. 웹 테스트는 15초로 비슷하게 흉내.
+    const AD_SEC = 15;
     const { root, close } = this.openModal(`
       <div class="ad-screen">
-        <div class="small muted">테스트 광고 — 출시 버전에서는 실제 보상형 광고</div>
-        <div class="count" data-c>3</div>
-        <div class="small muted">광고가 끝나면 보상을 받아요</div>
+        <div class="small muted">테스트 광고 — 앱에서는 실제 보상형 광고 (보통 15~30초)</div>
+        <div class="count" data-c>${AD_SEC}</div>
+        <div class="small muted">광고를 끝까지 보면 보상을 받아요</div>
+        ${RELEASE ? '' : '<button class="btn ghost" data-a="skip" style="margin-top:12px">개발용: 건너뛰기</button>'}
       </div>`);
-    let n = 3;
+    let n = AD_SEC;
+    const finish = () => {
+      clearInterval(iv);
+      close();
+      reward();
+    };
     const iv = setInterval(() => {
       n--;
       const c = root.querySelector('[data-c]');
       if (c) c.textContent = String(n);
-      if (n <= 0) {
-        clearInterval(iv);
-        close();
-        reward();
-      }
-    }, 700);
+      if (n <= 0) finish();
+    }, 1000);
+    root.querySelector('[data-a="skip"]')?.addEventListener('click', finish);
   }
 
   private openOffline(): void {
@@ -875,15 +889,42 @@ export class UI {
     const steps = (n: number) => `<div class="steps">${[0, 1, 2, 3].map((i) => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</div>`;
 
     const candCard = (c: Candidate, best: boolean) => `
-      <button class="cand ${best ? 'best' : ''}" data-id="${c.id}">
+      <button class="cand ${best ? 'best' : ''}" data-id="${c.id}" aria-pressed="false">
         <div class="thumb"><img src="${spriteUrl(c.genes)}" alt="" /></div>
         <div class="info">
-          <b>${esc(c.name)}</b> <span class="score">유전 점수 ${geneScore(c.genes)}${best ? ' · 추천' : ''}</span>
+          <b>${esc(c.name)}</b> <span class="score">유전 점수 ${geneScore(c.genes)}</span>${best ? ' <span class="rec">추천</span>' : ''}
           <div class="chips">${traitChips(c.genes.traits, c.mutation)}</div>
           ${geneBars(c.genes)}
         </div>
       </button>`;
     const bestId = (list: Candidate[]) => list.reduce((a, b) => (geneScore(b.genes) > geneScore(a.genes) ? b : a)).id;
+
+    /**
+     * 카드를 누르면 '선택'만 되고, 아래 결정 버튼을 눌러야 확정된다.
+     * 화면이 바뀐 직후 0.4초 동안은 누름을 무시한다 (앞 화면 버튼을 누른 손가락이 새 카드를 누르는 것 방지).
+     */
+    const pickable = (list: Candidate[], confirmSel: string, label: (c: Candidate) => string, onConfirm: (c: Candidate) => void) => {
+      const shownAt = performance.now();
+      let picked: Candidate | null = null;
+      const confirm = root.querySelector<HTMLButtonElement>(confirmSel)!;
+      confirm.disabled = true;
+      root.querySelectorAll<HTMLButtonElement>('.cand').forEach((b) =>
+        b.addEventListener('click', () => {
+          if (performance.now() - shownAt < 400) return;
+          audio.play('click');
+          picked = list.find((c) => c.id === b.dataset.id)!;
+          root.querySelectorAll<HTMLButtonElement>('.cand').forEach((x) => {
+            x.classList.toggle('sel', x === b);
+            x.setAttribute('aria-pressed', String(x === b));
+          });
+          confirm.disabled = false;
+          confirm.textContent = label(picked);
+        }),
+      );
+      confirm.addEventListener('click', () => {
+        if (picked && performance.now() - shownAt >= 400) onConfirm(picked);
+      });
+    };
 
     audio.play('retire');
     const summary = () => {
@@ -921,16 +962,13 @@ export class UI {
         ${steps(1)}
         <h2>혼담이 들어왔어요</h2>
         <p class="lead small">배우자의 특성과 능력치가 자녀에게 이어져요. 명성이 높을수록 좋은 혼처가 들어와요.</p>
+        <p class="small muted pick-hint">카드를 눌러 고른 뒤, 아래 버튼으로 결정하세요. <span class="rec">추천</span> = 유전 점수가 가장 높은 후보</p>
         <div class="cands">${list.map((c) => candCard(c, c.id === best)).join('')}</div>
         <div class="actions">
-          <button class="btn blue" data-a="reroll">${iconImg('gem')} ${BALANCE.gems.spouseReroll} 새 혼담 받기</button>
+          <button class="btn blue" data-a="reroll">${iconImg('gem')} ${BALANCE.gems.spouseReroll} 새 혼담</button>
+          <button class="btn" data-a="pick">배우자를 고르세요</button>
         </div>`;
-      root.querySelectorAll<HTMLButtonElement>('.cand').forEach((b) =>
-        b.addEventListener('click', () => {
-          audio.play('click');
-          children(list.find((c) => c.id === b.dataset.id)!);
-        }),
-      );
+      pickable(list, '[data-a="pick"]', (c) => `${josa(c.name, '과', '와')} 혼인`, (c) => children(c));
       root.querySelector('[data-a="reroll"]')!.addEventListener('click', () => {
         if (core.rerollSpouses()) spouses();
         else this.toast('보석이 부족해요');
@@ -947,14 +985,14 @@ export class UI {
           <img src="${spriteUrl(h.genes)}" alt="" /><span class="heart">♥</span><img src="${spriteUrl(spouse.genes)}" alt="" style="transform:scaleX(-1)" />
         </div>
         <p class="lead small">${esc(josa(h.name, '과', '와'))} ${esc(spouse.name)} 사이에서 태어난 아이들이에요.</p>
+        <p class="small muted pick-hint">카드를 눌러 고른 뒤, 아래 버튼으로 결정하세요.</p>
         <div class="cands">${list.map((c) => candCard(c, c.id === best)).join('')}</div>
         <div class="actions">
-          <button class="btn ghost" data-a="back">배우자 다시 고르기</button>
-          <button class="btn blue" data-a="reroll">${iconImg('gem')} ${BALANCE.gems.childReroll} 축복 의식</button>
-        </div>`;
-      root.querySelectorAll<HTMLButtonElement>('.cand').forEach((b) =>
-        b.addEventListener('click', () => crown(spouse, list.find((c) => c.id === b.dataset.id)!)),
-      );
+          <button class="btn ghost" data-a="back">배우자 다시</button>
+          <button class="btn blue" data-a="reroll">${iconImg('gem')} ${BALANCE.gems.childReroll} 축복</button>
+        </div>
+        <button class="btn wide" data-a="pick" style="margin-top:8px">후계자를 고르세요</button>`;
+      pickable(list, '[data-a="pick"]', (c) => `${josa(c.name, '을', '를')} 다음 가주로`, (c) => crown(spouse, c));
       root.querySelector('[data-a="back"]')!.addEventListener('click', () => spouses());
       root.querySelector('[data-a="reroll"]')!.addEventListener('click', () => {
         if (core.rerollChildren(spouse)) children(spouse);

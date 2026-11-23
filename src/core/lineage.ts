@@ -23,19 +23,34 @@ export function previewFame(state: GameState): number {
   return fameForRetirement(state.hero.maxStage, computeStats(state).fameMul);
 }
 
+/** 가문에서 이미 쓰인 이름 (역대 가주·배우자·현 가주) */
+export function takenNames(state: GameState): Set<string> {
+  const s = new Set<string>([state.hero.name]);
+  for (const l of state.lineage) {
+    s.add(l.name);
+    if (l.spouse) s.add(l.spouse.name);
+  }
+  return s;
+}
+
 export function makeSpouseCandidates(state: GameState, rng: Rng): Candidate[] {
   const q = spouseQuality(state.fame);
-  return Array.from({ length: BALANCE.genetics.spouseCandidates }, () => ({
-    id: newId(rng),
-    name: generateName(rng),
-    genes: randomGenes(rng, q),
-  }));
+  const taken = takenNames(state);
+  return Array.from({ length: BALANCE.genetics.spouseCandidates }, () => {
+    const name = generateName(rng, taken);
+    taken.add(name);
+    return { id: newId(rng), name, genes: randomGenes(rng, q) };
+  });
 }
 
 export function makeChildCandidates(state: GameState, spouse: Candidate, rng: Rng): Candidate[] {
+  const taken = takenNames(state);
+  taken.add(spouse.name);
   return Array.from({ length: BALANCE.genetics.childrenPerGeneration }, () => {
     const { genes, mutation } = inherit(state.hero.genes, spouse.genes, rng);
-    return { id: newId(rng), name: generateName(rng), genes, mutation };
+    const name = generateName(rng, taken);
+    taken.add(name);
+    return { id: newId(rng), name, genes, mutation };
   });
 }
 

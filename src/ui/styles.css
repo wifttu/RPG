@@ -769,10 +769,46 @@ canvas {
   color: inherit;
   width: 100%;
 }
-.cand:hover,
 .cand:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+/* 마우스가 있는 기기에서만 올렸을 때 표시 (휴대폰에서 터치 자리에 테두리가 남는 문제 방지) */
+@media (hover: hover) {
+  .cand:hover {
+    border-color: var(--line);
+    background: var(--panel-hi);
+  }
+}
+.cand.sel {
   border-color: var(--gold);
-  outline: none;
+  background: var(--panel-hi);
+  box-shadow: 0 0 0 2px var(--gold);
+}
+.cand.sel::after {
+  content: '선택';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  color: #0b0812;
+  background: var(--gold);
+  padding: 0 4px;
+}
+.cand {
+  position: relative;
+}
+.rec {
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+  font-size: 9px;
+  color: #0b0812;
+  background: var(--good);
+  padding: 0 4px;
+  vertical-align: 1px;
+}
+.pick-hint {
+  text-align: center;
+  margin: -6px 0 8px;
 }
 .cand .thumb {
   width: 56px;
@@ -796,7 +832,7 @@ canvas {
   font-family: 'Galmuri9', 'Galmuri11', sans-serif;
 }
 .cand.best {
-  border-color: var(--good);
+  border-color: #3f7a4a;
 }
 .parents {
   display: flex;
@@ -1076,4 +1112,30 @@ textarea.code {
   word-break: break-all;
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* 좁은 화면: 긴 특성 이름은 줄바꿈, 능력치 표는 한 줄에 하나 */
+.chip {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.modal {
+  overflow-x: hidden;
+}
+.cand .info {
+  overflow: hidden;
+}
+@media (max-width: 360px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+  .cand .thumb {
+    width: 44px;
+  }
+  .cand .thumb img {
+    height: 44px;
+  }
+  .modal {
+    padding: 12px 10px;
+  }
 }
