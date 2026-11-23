@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { ANIMS, FEET_Y as SHEET_FEET, FRAME, heroSheetCanvas } from '../art/heroSheet';
-import { coinCanvas, monsterCanvases } from '../art/monsters';
+import { monsterArtCanvas } from '../art/monsterArt';
+import { coinCanvas } from '../art/monsters';
 import { OUTLINE, UI } from '../art/palette';
 import { BIOMES, cloudCanvas, farLayer, groundLayer, midLayer, paintSky, skyAt, toTint } from '../art/world';
 import { BALANCE } from '../config/balance';
@@ -140,15 +141,7 @@ export class BattleScene extends Phaser.Scene {
       t.addCanvas(`far-${i}`, farLayer(b));
       t.addCanvas(`mid-${i}`, midLayer(b));
       t.addCanvas(`ground-${i}`, groundLayer(b));
-      for (const k of MONSTER_KINDS) {
-        monsterCanvases(k, i).forEach((c, f) => t.addCanvas(`mon-${k}-${i}-${f}`, c));
-      }
-      this.anims.create({
-        key: `bat-${i}`,
-        frames: [{ key: `mon-bat-${i}-0` }, { key: `mon-bat-${i}-1` }],
-        frameRate: 6,
-        repeat: -1,
-      });
+      for (const k of MONSTER_KINDS) t.addCanvas(`mon-${k}-${i}`, monsterArtCanvas(k, i));
     });
     for (let i = 0; i < 3; i++) t.addCanvas(`cloud-${i}`, cloudCanvas(i));
 
@@ -299,15 +292,17 @@ export class BattleScene extends Phaser.Scene {
   private spawnMonster(m: Monster): void {
     this.clearMonster();
     const b = biomeOf(this.core.state.stage);
-    const spr = this.add.sprite(0, 0, `mon-${m.kind}-${b}-0`).setOrigin(0.5, 1);
+    const spr = this.add.sprite(0, 0, `mon-${m.kind}-${b}`).setOrigin(0.5, 1);
     spr.setTint(this.charTint());
     if (m.kind === 'bat') {
-      spr.play(`bat-${b}`);
-      spr.y = -14;
+      // 날갯짓: 위아래로 떠다니며 살짝 눌렸다 펴진다
+      spr.y = -12;
       this.tweens.add({ targets: spr, y: -18, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.tweens.add({ targets: spr, scaleY: 0.88, duration: 160, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     }
+    if (m.kind === 'mushroom' || m.kind === 'beetle') this.tweens.add({ targets: spr, scaleY: 0.95, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     if (m.kind === 'slime') this.tweens.add({ targets: spr, scaleY: 0.9, scaleX: 1.06, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-    const shadow = this.add.ellipse(0, 0, m.boss ? 34 : 20, 5, 0x000000, 0.28);
+    const shadow = this.add.ellipse(0, 0, m.boss ? 46 : 28, 6, 0x000000, 0.28);
     const c = this.add.container(VIEW_W + 20, FEET_Y, [shadow, spr]);
     this.tweens.add({ targets: c, x: MON_X + (m.boss ? 8 : 0), duration: 220, ease: 'Quad.out' });
     this.monster = c;
