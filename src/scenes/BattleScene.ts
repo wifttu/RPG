@@ -18,6 +18,7 @@ import { biomeOf, type BattleEvent, type Monster, type MonsterKind } from '../co
 import type { Game } from '../core/game';
 import { mix } from '../art/palette';
 import { fmt } from '../ui/format';
+import { audio } from '../audio/audio';
 
 export const VIEW_W = 160;
 export const VIEW_H = 144;
@@ -278,15 +279,20 @@ export class BattleScene extends Phaser.Scene {
           break;
         case 'heroAttack':
           this.heroSwing(e.damage, e.crit);
+          audio.play(e.crit ? 'crit' : 'hit');
           break;
         case 'kill':
           this.killMonster(e.gold);
+          audio.play('kill');
+          this.time.delayedCall(260, () => audio.play('coin'));
           break;
         case 'monsterAttack':
           this.monsterHit(e.damage);
+          audio.play('hurt');
           break;
         case 'heroDeath':
           this.heroFall();
+          audio.play('death');
           break;
         case 'respawn':
           this.heroRise();
@@ -294,7 +300,10 @@ export class BattleScene extends Phaser.Scene {
         case 'stageChange':
           this.applyBiome(biomeOf(e.stage));
           if (e.reason !== 'clear') this.clearMonster();
-          if (e.boss) this.banner('BOSS', '#ff5c6c');
+          if (e.boss) {
+            this.banner('BOSS', '#ff5c6c');
+            audio.play('boss');
+          }
           else if (e.reason === 'timeout') this.banner('시간 초과', '#ffb36b');
           break;
       }
@@ -411,6 +420,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private onNewGeneration(): void {
+    audio.play('fanfare');
     this.clearMonster();
     this.heroSprite.setTexture(this.heroKey(), 0);
     this.attacking = false;

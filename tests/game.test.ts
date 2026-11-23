@@ -98,3 +98,13 @@ describe('battle sim + generations (balance smoke test)', () => {
     expect(s.lineage).toHaveLength(1);
   });
 });
+
+describe('josa (한국어 조사)', async () => {
+  const { josa } = await import('../src/ui/format');
+  it('picks particle by final consonant', () => {
+    expect(josa('레온', '이', '가')).toBe('레온이');
+    expect(josa('하나', '이', '가')).toBe('하나가');
+    expect(josa('카엘', '과', '와')).toBe('카엘과');
+    expect(josa('세리', '과', '와')).toBe('세리와');
+  });
+});

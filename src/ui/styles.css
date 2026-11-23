@@ -252,6 +252,21 @@ canvas {
   height: 100%;
   background: var(--bad);
 }
+.sound-chip {
+  pointer-events: auto;
+  font: inherit;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+  font-size: 10px;
+  color: var(--text);
+  background: #0b0812cc;
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.sound-chip.off {
+  color: var(--dim);
+  text-decoration: line-through;
+}
 .boost-chip {
   background: #0b0812cc;
   border: 1px solid var(--gold);
@@ -844,4 +859,85 @@ table.odds th {
     opacity: 0;
     transform: translateY(-8px);
   }
+}
+
+/* ───────── 튜토리얼 ───────── */
+.tut-dim {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+  background: #0b0812b0;
+  animation: fade 0.2s;
+}
+.tut-ring {
+  position: fixed;
+  z-index: 15;
+  pointer-events: none;
+  border: 2px solid var(--gold);
+  box-shadow:
+    0 0 0 9999px #0b081280,
+    0 0 12px #f4c64e88;
+  animation: ring 1s steps(2) infinite;
+}
+@keyframes ring {
+  50% {
+    border-color: #fff4c0;
+  }
+}
+.tut-bubble {
+  position: fixed;
+  z-index: 16;
+  background: var(--panel);
+  border: 2px solid var(--gold);
+  box-shadow:
+    inset 2px 2px 0 var(--panel-hi),
+    0 4px 0 #0b0812;
+  padding: 10px 12px;
+  animation: pop 0.18s steps(3);
+}
+.tut-bubble.center {
+  border-color: var(--accent);
+}
+.tut-bubble p {
+  margin: 6px 0 10px;
+  line-height: 1.6;
+}
+.tut-bubble b {
+  color: var(--gold);
+}
+.tut-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tut-head b {
+  color: var(--text);
+  font-size: 13px;
+}
+.tut-head span {
+  color: var(--dim);
+  font-size: 10px;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+}
+.tut-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.tut-skip {
+  font: inherit;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+  font-size: 10px;
+  color: var(--dim);
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.tut-hint {
+  color: var(--gold);
+  font-size: 11px;
+  animation: ring 0.8s steps(2) infinite;
 }

@@ -36,3 +36,10 @@ export function fmtDuration(sec: number): string {
   if (m) return `${m}분 ${s}초`;
   return `${s}초`;
 }
+
+/** 받침에 맞는 조사: josa('레온', '이', '가') → '레온이', josa('하나', '이', '가') → '하나가' */
+export function josa(word: string, withBatchim: string, without: string): string {
+  const c = word.charCodeAt(word.length - 1);
+  const has = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0;
+  return word + (has ? withBatchim : without);
+}

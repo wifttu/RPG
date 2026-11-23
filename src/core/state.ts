@@ -44,6 +44,8 @@ export interface GameState {
   /** 은퇴 절차 중 뽑아둔 후보. 저장해 두어야 재접속으로 공짜 리롤을 못 한다. */
   pendingSpouses?: PendingCandidate[];
   pendingChildren?: Record<string, PendingCandidate[]>;
+  /** 끝낸 튜토리얼 단계 id */
+  tutorial?: string[];
 }
 
 export interface PendingCandidate {

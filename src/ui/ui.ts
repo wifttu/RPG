@@ -8,7 +8,9 @@ import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
 import { fameMultiplier, lifeStage, upgradeMultiplier } from '../core/stats';
 import { MUTATION_RARITY_TABLE, RARITY_LABEL, getTrait, traitsOfRarity, type Rarity } from '../core/traits';
-import { fmt, fmtDuration, fmtPct } from './format';
+import { fmt, fmtDuration, fmtPct, josa } from './format';
+import { audio } from '../audio/audio';
+import { Tutorial } from './tutorial';
 
 type Tab = 'grow' | 'family' | 'shop';
 
@@ -53,6 +55,7 @@ export class UI {
   private modalOpen = false;
   private modalQueue: (() => void)[] = [];
   private lastGen = -1;
+  private tutorial: Tutorial | null = null;
 
   constructor(private core: Game) {}
 
@@ -65,9 +68,33 @@ export class UI {
       if (evs.some((e) => e.type === 'kill')) this.pulse('.cur.gold');
     });
     this.core.on('newGeneration', () => this.renderPanel());
+    this.bindSound();
+    this.tutorial = new Tutorial(this.core, {
+      modalOpen: () => this.modalOpen,
+      showTab: (t) => this.setTab(t),
+      currentTab: () => this.tab,
+    });
     setInterval(() => this.refresh(), 200);
     if (this.core.offline) this.queueModal(() => this.openOffline());
     this.refresh();
+  }
+
+  /** 첫 터치에 소리를 켜고(모바일 정책), 소리 버튼으로 켜고 끈다 */
+  private bindSound(): void {
+    const btn = $<HTMLButtonElement>('[data-sound]');
+    const paint = () => {
+      btn.textContent = audio.enabled ? '♪ 소리 켬' : '♪ 소리 끔';
+      btn.classList.toggle('off', !audio.enabled);
+    };
+    paint();
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      audio.setEnabled(!audio.enabled);
+      paint();
+      if (audio.enabled) audio.play('click');
+    });
+    window.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
+    document.addEventListener('visibilitychange', () => (document.hidden ? audio.pause() : audio.unlock()));
   }
 
   // ───────────────────────── HUD ─────────────────────────
@@ -106,6 +133,7 @@ export class UI {
       <div style="display:grid;gap:4px;justify-items:end">
         <div class="boost-chip" data-b="boost" hidden></div>
         <div class="boost-chip" data-b="speed" hidden></div>
+        <button class="sound-chip" data-sound aria-label="소리 켜기/끄기"></button>
       </div>`;
   }
 
@@ -165,6 +193,7 @@ export class UI {
       this.renderPanel();
     }
     this.refreshPanel();
+    this.tutorial?.update();
   }
 
   // ───────────────────────── 탭 ─────────────────────────
@@ -180,12 +209,19 @@ export class UI {
       .join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
       b.addEventListener('click', () => {
-        this.tab = b.dataset.tab as Tab;
-        nav.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
-        this.renderPanel();
-        this.panel.scrollTop = 0;
+        audio.play('click');
+        this.setTab(b.dataset.tab as Tab);
       }),
     );
+  }
+
+  setTab(tab: Tab): void {
+    this.tab = tab;
+    $('#tabs')
+      .querySelectorAll<HTMLButtonElement>('button')
+      .forEach((x) => x.classList.toggle('on', x.dataset.tab === tab));
+    this.renderPanel();
+    this.panel.scrollTop = 0;
   }
 
   private renderPanel(): void {
@@ -348,10 +384,12 @@ export class UI {
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         if (!this.core.upgrade(kind)) return;
+        audio.play('upgrade', Math.min(1, (this.core.state.upgrades[kind] % 25) / 25));
         this.refreshPanel();
         timer = window.setTimeout(() => {
           rep = window.setInterval(() => {
             if (!this.core.upgrade(kind)) stop();
+            else audio.play('upgrade', Math.min(1, (this.core.state.upgrades[kind] % 25) / 25));
             this.refreshPanel();
           }, 70);
         }, 380);
@@ -494,6 +532,7 @@ export class UI {
       if (n <= 0) {
         clearInterval(iv);
         close();
+        audio.play('reward');
         onReward();
       }
     }, 700);
@@ -578,6 +617,7 @@ export class UI {
       </button>`;
     const bestId = (list: Candidate[]) => list.reduce((a, b) => (geneScore(b.genes) > geneScore(a.genes) ? b : a)).id;
 
+    audio.play('retire');
     const summary = () => {
       root.innerHTML = `
         ${steps(0)}
@@ -614,7 +654,10 @@ export class UI {
           <button class="btn blue" data-a="reroll">${iconImg('gem')} ${BALANCE.gems.spouseReroll} 새 혼담 받기</button>
         </div>`;
       root.querySelectorAll<HTMLButtonElement>('.cand').forEach((b) =>
-        b.addEventListener('click', () => children(list.find((c) => c.id === b.dataset.id)!)),
+        b.addEventListener('click', () => {
+          audio.play('click');
+          children(list.find((c) => c.id === b.dataset.id)!);
+        }),
       );
       root.querySelector('[data-a="reroll"]')!.addEventListener('click', () => {
         if (core.rerollSpouses()) spouses();
@@ -631,7 +674,7 @@ export class UI {
         <div class="parents">
           <img src="${spriteUrl(h.genes)}" alt="" /><span class="heart">♥</span><img src="${spriteUrl(spouse.genes)}" alt="" style="transform:scaleX(-1)" />
         </div>
-        <p class="lead small">${esc(h.name)}와 ${esc(spouse.name)} 사이에서 태어난 아이들이에요.</p>
+        <p class="lead small">${esc(josa(h.name, '과', '와'))} ${esc(spouse.name)} 사이에서 태어난 아이들이에요.</p>
         <div class="cands">${list.map((c) => candCard(c, c.id === best)).join('')}</div>
         <div class="actions">
           <button class="btn ghost" data-a="back">배우자 다시 고르기</button>
@@ -654,7 +697,7 @@ export class UI {
         ${steps(3)}
         <h2>${s.hero.generation}대 가주 즉위</h2>
         <div class="parents"><img src="${spriteUrl(s.hero.genes)}" alt="" style="height:80px" /></div>
-        <p class="lead"><b>${esc(s.hero.name)}</b>이(가) ${esc(s.houseName)} 가문을 이어받았어요</p>
+        <p class="lead"><b>${esc(josa(s.hero.name, '이', '가'))}</b> ${esc(s.houseName)} 가문을 이어받았어요</p>
         <div class="chips" style="justify-content:center">${traitChips(s.hero.genes.traits, child.mutation)}</div>
         <div class="big-num">${iconImg('fame')} <b style="color:var(--fame)">명성 +${fmt(gained)}</b></div>
         <p class="small muted" style="text-align:center">모든 능력·골드 +${fmtPct(fameMultiplier(s.fame) - 1)}</p>
