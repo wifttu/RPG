@@ -7,3 +7,4 @@ dist/
 art/raw/
 art/out/
 __pycache__/
+dist-single/

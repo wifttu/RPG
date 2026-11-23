@@ -14,6 +14,7 @@ npm install
 npm run dev        # http://localhost:5173  (휴대폰 화면 비율로 보세요)
 npm test           # 유전·전투·밸런스 테스트
 npm run build      # dist/ 에 배포용 빌드
+npm run build:single  # dist-single/index.html 한 파일로 합친 빌드 (링크 하나로 공유할 때)
 ```
 
 주소 뒤에 붙이는 개발용 옵션:
