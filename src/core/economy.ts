@@ -1,6 +1,6 @@
 import { BALANCE, type UpgradeKind } from '../config/balance';
 import type { GameState } from './state';
-import { computeStats, expectedDps } from './stats';
+import { computeStats, expectedDps, secondsPerYear } from './stats';
 
 export function upgradeCost(kind: UpgradeKind, level: number): number {
   const u = BALANCE.upgrades[kind];
@@ -38,13 +38,25 @@ export function monsterGold(stage: number): number {
   return m.baseGold * m.goldGrowth ** (stage - 1) * (isBossStage(stage) ? m.bossGoldMul : 1);
 }
 
-export function monstersInStage(stage: number): number {
-  return isBossStage(stage) ? 1 : BALANCE.monster.perStage;
+/** 가문 역대 최고 스테이지 (현재 가주 포함) */
+export function houseBest(state: Pick<GameState, 'lineage' | 'hero'>): number {
+  return Math.max(state.hero.maxStage, ...state.lineage.map((l) => l.maxStage));
+}
+
+/** 선대가 정복한 땅(가문 최고 기록의 80% 아래)은 빠르게 지나간다 */
+export function isMarchStage(stage: number, best: number): boolean {
+  return !isBossStage(stage) && stage < Math.floor(best * BALANCE.march.ratio);
+}
+
+export function monstersInStage(stage: number, best = 0): number {
+  if (isBossStage(stage)) return 1;
+  return isMarchStage(stage, best) ? 1 : BALANCE.monster.perStage;
 }
 
 export function fameForRetirement(maxStage: number, fameMul = 1): number {
   const f = BALANCE.fame;
-  return Math.floor((maxStage / f.divisor) ** f.exponent * fameMul);
+  if (maxStage <= f.offset) return 0;
+  return Math.floor(f.coef * f.growth ** (maxStage - f.offset) * fameMul);
 }
 
 /** 초당 골드 기대값 (오프라인 보상, HUD 표시용) */
@@ -69,9 +81,10 @@ export function computeOffline(state: GameState, now: number): OfflineResult {
   const seconds = Math.min(raw, t.offlineCapSec);
   const lifespan = computeStats(state, now).lifespan;
   const yearsLeft = Math.max(0, lifespan - state.hero.age);
-  const years = Math.min((seconds * t.offlineAgingRate) / t.secondsPerYear, yearsLeft);
+  const spy = secondsPerYear(state.hero.generation);
+  const years = Math.min((seconds * t.offlineAgingRate) / spy, yearsLeft);
   // 수명에 닿은 뒤로는 사냥하지 않는다
-  const activeSec = Math.min(seconds, (years * t.secondsPerYear) / t.offlineAgingRate);
+  const activeSec = Math.min(seconds, (years * spy) / t.offlineAgingRate);
   // 부스트는 오프라인에 적용하지 않는다 (광고 2배 버튼과 중복 방지)
   const gps = estimateGoldPerSec({ ...state, boostUntil: 0 }, now);
   return {

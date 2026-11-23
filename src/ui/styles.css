@@ -224,6 +224,11 @@ canvas {
   padding: 2px 8px;
   font-size: 12px;
 }
+.stage-chip .march {
+  color: var(--gem);
+  font-size: 10px;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+}
 .stage-chip .boss {
   color: var(--bad);
 }

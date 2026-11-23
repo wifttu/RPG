@@ -43,3 +43,9 @@ export function josa(word: string, withBatchim: string, without: string): string
   const has = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0;
   return word + (has ? withBatchim : without);
 }
+
+/** 배율 표기: 1.55 → x1.55, 87527 → x8.75만 */
+export function fmtMul(m: number): string {
+  if (m < 100) return `x${m.toFixed(2).replace(/\.?0+$/, '')}`;
+  return `x${fmt(m)}`;
+}

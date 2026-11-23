@@ -11,7 +11,7 @@ import {
 import { Rng } from './rng';
 import { loadGame, saveGame } from './save';
 import { createNewGame, type GameState } from './state';
-import { computeStats } from './stats';
+import { computeStats, secondsPerYear } from './stats';
 
 type Listener<T> = (payload: T) => void;
 
@@ -67,7 +67,7 @@ export class Game {
     if (this.retiring) return;
 
     const lifespan = computeStats(this.state, now).lifespan;
-    this.state.hero.age = Math.min(lifespan, this.state.hero.age + dt / BALANCE.time.secondsPerYear);
+    this.state.hero.age = Math.min(lifespan, this.state.hero.age + dt / secondsPerYear(this.state.hero.generation));
     if (mustRetire(this.state)) {
       this.beginRetirement();
       return;

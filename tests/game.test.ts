@@ -5,7 +5,7 @@ import { buyUpgrade, computeOffline, fameForRetirement, upgradeCost } from '../s
 import { makeChildCandidates, makeSpouseCandidates, retire } from '../src/core/lineage';
 import { Rng } from '../src/core/rng';
 import { createNewGame } from '../src/core/state';
-import { ageMultiplier, computeStats } from '../src/core/stats';
+import { ageMultiplier, computeStats, secondsPerYear } from '../src/core/stats';
 
 describe('stats & economy', () => {
   it('age curve peaks in prime and declines in old age', () => {
@@ -58,7 +58,7 @@ describe('battle sim + generations (balance smoke test)', () => {
     let t = 0;
     while (s.hero.age < life) {
       sim.tick(dt, 0);
-      s.hero.age += dt / BALANCE.time.secondsPerYear;
+      s.hero.age += dt / secondsPerYear(1);
       t += dt;
       if (Math.round(t / dt) % 20 === 0) {
         for (;;) {

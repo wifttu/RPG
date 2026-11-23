@@ -2,13 +2,13 @@ import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
-import { isBossStage, monstersInStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
+import { houseBest, isBossStage, isMarchStage, monstersInStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
 import type { Game } from '../core/game';
 import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
 import { fameMultiplier, lifeStage, upgradeMultiplier } from '../core/stats';
 import { MUTATION_RARITY_TABLE, RARITY_LABEL, getTrait, traitsOfRarity, type Rarity } from '../core/traits';
-import { fmt, fmtDuration, fmtPct, josa } from './format';
+import { fmt, fmtDuration, fmtMul, fmtPct, josa } from './format';
 import { audio } from '../audio/audio';
 import { Tutorial } from './tutorial';
 
@@ -170,11 +170,16 @@ export class UI {
 
     // 전투 오버레이
     const boss = isBossStage(state.stage);
-    $('[data-b="stage"]').innerHTML = boss
+    const best = houseBest(state);
+    const stageHtml = boss
       ? `<span class="boss">BOSS</span> 스테이지 ${state.stage}`
-      : `스테이지 ${state.stage}`;
+      : isMarchStage(state.stage, best)
+        ? `스테이지 ${state.stage} <span class="march">빠른 진군</span>`
+        : `스테이지 ${state.stage}`;
+    const chip = $('[data-b="stage"]');
+    if (chip.innerHTML !== stageHtml) chip.innerHTML = stageHtml;
     const pips = $('[data-b="pips"]');
-    const total = monstersInStage(state.stage);
+    const total = monstersInStage(state.stage, best);
     const html = boss ? '' : Array.from({ length: total }, (_, i) => `<i class="${i < this.core.sim.killsInStage ? 'on' : ''}"></i>`).join('');
     if (pips.innerHTML !== html) pips.innerHTML = html;
     const bt = $('[data-b="bossTimer"]');
@@ -289,7 +294,7 @@ export class UI {
         <h3>${iconImg('crown')} ${esc(s.houseName)} 가문 <small>${h.generation}대째</small></h3>
         <div class="stats" style="margin-top:0">
           <div class="stat"><span>명성</span><b style="color:var(--fame)">${fmt(s.fame)}</b></div>
-          <div class="stat"><span>명성 보너스</span><b style="color:var(--good)">+${fmtPct(fameMultiplier(s.fame) - 1)}</b></div>
+          <div class="stat"><span>명성 배율</span><b style="color:var(--good)">${fmtMul(fameMultiplier(s.fame))}</b></div>
           <div class="stat"><span>가문 최고 기록</span><b>${best} 스테이지</b></div>
           <div class="stat"><span>처치한 몬스터</span><b>${fmt(s.totalKills)}</b></div>
         </div>
@@ -628,7 +633,7 @@ export class UI {
           <div class="stat"><span>나이</span><b>${Math.floor(h.age)}세</b></div>
           <div class="stat"><span>최고 스테이지</span><b>${h.maxStage}</b></div>
           <div class="stat"><span>얻을 명성</span><b style="color:var(--fame)">+${fmt(fame)}</b></div>
-          <div class="stat"><span>명성 보너스</span><b style="color:var(--good)">+${fmtPct(fameMultiplier(core.state.fame) - 1)} → +${fmtPct(fameMultiplier(core.state.fame + fame) - 1)}</b></div>
+          <div class="stat"><span>명성 배율</span><b style="color:var(--good)">${fmtMul(fameMultiplier(core.state.fame))} → ${fmtMul(fameMultiplier(core.state.fame + fame))}</b></div>
         </div>
         <p class="small muted">은퇴하면 골드·수련·스테이지는 초기화되고, 명성과 보석, 그리고 피(유전자)가 다음 세대로 이어져요.</p>
         <div class="actions">
@@ -700,7 +705,7 @@ export class UI {
         <p class="lead"><b>${esc(josa(s.hero.name, '이', '가'))}</b> ${esc(s.houseName)} 가문을 이어받았어요</p>
         <div class="chips" style="justify-content:center">${traitChips(s.hero.genes.traits, child.mutation)}</div>
         <div class="big-num">${iconImg('fame')} <b style="color:var(--fame)">명성 +${fmt(gained)}</b></div>
-        <p class="small muted" style="text-align:center">모든 능력·골드 +${fmtPct(fameMultiplier(s.fame) - 1)}</p>
+        <p class="small muted" style="text-align:center">공격력·체력·골드 ${fmtMul(fameMultiplier(s.fame))}</p>
         <div class="actions"><button class="btn green" data-a="go">모험 시작</button></div>`;
       root.querySelector('[data-a="go"]')!.addEventListener('click', () => {
         close();

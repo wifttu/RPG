@@ -13,6 +13,12 @@ export interface HeroStats {
   ageMul: number;
 }
 
+/** generation 대 가주에게 게임 속 1년이 실제 몇 초인지 */
+export function secondsPerYear(generation: number): number {
+  const t = BALANCE.time;
+  return Math.min(t.yearSecondsMax, t.yearSecondsBase * t.yearSecondsGrowth ** (generation - 1));
+}
+
 export function lifespanOf(hero: Hero): number {
   const e = sumEffects(hero.genes.traits);
   return BALANCE.time.baseLifespan + e.lifespanAdd + Math.floor(hero.genes.vit / 20);

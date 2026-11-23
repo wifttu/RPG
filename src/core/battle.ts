@@ -1,5 +1,5 @@
 import { BALANCE } from '../config/balance';
-import { isBossStage, monsterAtk, monsterGold, monsterHp, monstersInStage } from './economy';
+import { houseBest, isBossStage, isMarchStage, monsterAtk, monsterGold, monsterHp, monstersInStage } from './economy';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 import { computeStats, type HeroStats } from './stats';
@@ -139,10 +139,11 @@ export class BattleSim {
     this.state.gold += gold;
     this.state.totalKills++;
     this.monster = null;
-    this.spawnTimer = BALANCE.monster.spawnGap;
+    const best = houseBest(this.state);
+    this.spawnTimer = isMarchStage(this.state.stage, best) ? BALANCE.march.spawnGap : BALANCE.monster.spawnGap;
     this.killsInStage++;
     ev.push({ type: 'kill', monster: m, gold });
-    if (this.killsInStage >= monstersInStage(this.state.stage)) {
+    if (this.killsInStage >= monstersInStage(this.state.stage, best)) {
       this.setStage(this.state.stage + 1, ev, 'clear');
       // 스테이지 클리어 보상: 체력 회복
       this.heroHp = this.stats.maxHp;
