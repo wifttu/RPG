@@ -24,6 +24,9 @@ import { questBadge, questHtml, refreshQuest } from './questPanel';
 
 type Tab = 'grow' | 'family' | 'quest' | 'shop';
 
+/** 출시 빌드(npm run build:release)에서는 개발용 버튼을 숨긴다 */
+const RELEASE = import.meta.env.VITE_RELEASE === 'true';
+
 const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
 
 function el(html: string): HTMLElement {
@@ -427,7 +430,7 @@ export class UI {
           <button class="btn ghost" data-act="import">코드로 불러오기</button>
         </div>
       </div>
-      <div class="card">
+      ${RELEASE ? '' : `<div class="card">
         <h3>개발용</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn ghost" data-act="speed">배속 바꾸기</button>
@@ -435,7 +438,7 @@ export class UI {
           <button class="btn ghost" data-act="events">플레이 기록</button>
           <button class="btn ghost" data-act="reset">처음부터</button>
         </div>
-      </div>`;
+      </div>`}`;
   }
 
   private bindPanel(): void {

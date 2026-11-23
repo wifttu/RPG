@@ -4,6 +4,7 @@ import galmuri11b from 'galmuri/dist/Galmuri11-Bold.woff2?url';
 import galmuri9 from 'galmuri/dist/Galmuri9.woff2?url';
 import { loadHeroSheet } from './art/heroSheet';
 import { loadMonsterArt } from './art/monsterArt';
+import { initNative } from './platform/native';
 import { Game } from './core/game';
 import { clearSave } from './core/save';
 import { BattleScene, VIEW_H, VIEW_W } from './scenes/BattleScene';
@@ -38,6 +39,7 @@ async function boot(): Promise<void> {
 
   await Promise.all([loadFonts(), loadHeroSheet(), loadMonsterArt()]);
 
+  void initNative();
   const core = new Game();
   const speed = Number(params.get('speed'));
   if (speed > 0) core.timeScale = speed;
