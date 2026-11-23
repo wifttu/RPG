@@ -60,3 +60,17 @@ far2의 해, mid1의 구름 조각은 지웠다 (게임이 해·구름을 따로
 | spd.png | 36 | a winged leather boot with a yellow lightning bolt |
 | crown.png | 37 | a golden royal crown with red and blue jewels |
 | ad.png | 38 | a green play button inside a rounded screen |
+
+## 지역 추가: 얼어붙은 설원 · 불타는 화산 (2026-11-23, 무료 횟수 마지막 6회)
+
+| 파일 | 시드 | 프롬프트 (앞에 "side-scrolling game background layer: ") |
+|---|---|---|
+| far3 | 41 | distant icy white and pale blue snowy mountain range, frozen peaks, wide panorama, no sky (low detail, lineless) |
+| mid3 | 47 | row of dark green pine trees with snow on their branches, standing on a light blue icy ground strip, frozen forest, wide panorama, empty sky (시드 42는 빈 그림이라 실패, 차감 없음) |
+| far4 | 43 | distant dark volcanic mountains with glowing orange lava streams, smoky red haze, wide panorama, no sky (low detail, lineless) |
+| mid4 | 44 | black basalt rocks and jagged spires with cracks of glowing lava, scorched dead trees, wide panorama, empty sky (그려진 해는 지움) |
+
+| 보스 | 크기 | 시드 | 프롬프트 |
+|---|---|---|---|
+| yeti.png | 96 → 64 | 45 | huge white furry yeti boss monster with ice crystal horns and glowing blue eyes, big claws, facing left, game boss sprite |
+| dragon.png | 96 → 64 | 46 | fierce red fire dragon boss with spread wings, horns and glowing ember belly, breathing smoke, facing left, game boss sprite |

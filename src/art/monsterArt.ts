@@ -1,6 +1,8 @@
 import batUrl from '../assets/monsters/bat.png';
 import beetleUrl from '../assets/monsters/beetle.png';
+import dragonUrl from '../assets/monsters/dragon.png';
 import golemUrl from '../assets/monsters/golem.png';
+import yetiUrl from '../assets/monsters/yeti.png';
 import mushroomUrl from '../assets/monsters/mushroom.png';
 import slimeUrl from '../assets/monsters/slime.png';
 import type { MonsterKind } from '../core/battle';
@@ -15,15 +17,19 @@ const URLS: Record<MonsterKind, string> = {
   bat: batUrl,
   beetle: beetleUrl,
   golem: golemUrl,
+  yeti: yetiUrl,
+  dragon: dragonUrl,
 };
 
-/** 지역별 색상 회전 각도 (0: 들판 원본, 1: 안개 숲, 2: 잿빛 유적) */
+/** 지역별 색상 회전 각도 (0 들판 원본, 1 안개 숲, 2 잿빛 유적, 3 얼어붙은 설원, 4 불타는 화산) */
 const BIOME_HUE: Record<MonsterKind, number[]> = {
-  slime: [0, 150, 240],
-  mushroom: [0, 230, 35],
-  bat: [0, 300, 70],
-  beetle: [0, 260, 180],
-  golem: [0, 80, 200],
+  slime: [0, 150, 240, 70, 240],
+  mushroom: [0, 230, 35, 200, 20],
+  bat: [0, 300, 70, 300, 90],
+  beetle: [0, 260, 180, 330, 140],
+  golem: [0, 80, 200, 0, 0],
+  yeti: [0, 0, 0, 0, 0],
+  dragon: [0, 0, 0, 0, 0],
 };
 
 const images = new Map<MonsterKind, HTMLImageElement>();
@@ -80,7 +86,7 @@ export function monsterArtCanvas(kind: MonsterKind, biome: number): HTMLCanvasEl
   c.height = img.height;
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
-  const deg = BIOME_HUE[kind][biome % 3];
+  const deg = BIOME_HUE[kind][biome % BIOME_HUE[kind].length];
   if (deg) {
     const data = ctx.getImageData(0, 0, c.width, c.height);
     const d = data.data;

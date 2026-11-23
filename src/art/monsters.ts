@@ -6,7 +6,7 @@ import { OUTLINE } from './palette';
 type R = [string, string, string];
 
 /** 지역(바이옴)별 몬스터 색. 같은 모양을 색만 바꿔 재사용 → 그려야 할 그림 수를 줄이는 방치형 표준 기법 */
-const BIOME_TINTS: Record<MonsterKind, R[]> = {
+const BIOME_TINTS: Partial<Record<MonsterKind, R[]>> = {
   slime: [
     ['#2c7a3f', '#5cc35b', '#a8ec8a'],
     ['#4b2a86', '#8a5ad8', '#c7a3f5'],
@@ -189,7 +189,8 @@ export interface MonsterTex {
 }
 
 export function monsterCanvases(kind: MonsterKind, biome: number): HTMLCanvasElement[] {
-  const [d, b, l] = BIOME_TINTS[kind][biome % 3];
+  const tints = BIOME_TINTS[kind] ?? BIOME_TINTS.golem!;
+  const [d, b, l] = tints[biome % tints.length];
   const colors = { o: OUTLINE, '1': d, '2': b, '3': l, '4': '#b8a68a', '5': '#efe2c4', '6': '#fffaf0', W: '#ffffff', R: '#ff3b4a', E: GLOW[biome % 3] };
   const grids: Grid[] =
     kind === 'slime' ? [slime()] : kind === 'mushroom' ? [mushroom()] : kind === 'bat' ? [bat(0), bat(1)] : kind === 'beetle' ? [beetle()] : [golem()];

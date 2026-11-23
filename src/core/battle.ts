@@ -5,7 +5,7 @@ import type { Rng } from './rng';
 import type { GameState } from './state';
 import { computeStats, type HeroStats } from './stats';
 
-export type MonsterKind = 'slime' | 'mushroom' | 'bat' | 'beetle' | 'golem';
+export type MonsterKind = 'slime' | 'mushroom' | 'bat' | 'beetle' | 'golem' | 'yeti' | 'dragon';
 
 export interface Monster {
   id: number;
@@ -30,7 +30,7 @@ export type BattleEvent =
   /** 머무는 동안 충분히 강해져서 다시 도전 */
   | { type: 'retry'; stage: number };
 
-export const BIOME_COUNT = 3;
+export const BIOME_COUNT = 5;
 export const STAGES_PER_BIOME = 20;
 export function biomeOf(stage: number): number {
   return Math.floor((stage - 1) / STAGES_PER_BIOME) % BIOME_COUNT;
@@ -40,7 +40,12 @@ const BIOME_MONSTERS: MonsterKind[][] = [
   ['slime', 'mushroom'],
   ['mushroom', 'bat', 'slime'],
   ['bat', 'beetle', 'slime'],
+  ['slime', 'bat', 'beetle'],
+  ['bat', 'beetle', 'mushroom', 'slime'],
 ];
+
+/** 지역별 보스: 들판·숲·유적은 골렘(색만 다름), 설원은 설인, 화산은 화염 용 */
+export const BIOME_BOSS: MonsterKind[] = ['golem', 'golem', 'golem', 'yeti', 'dragon'];
 
 /**
  * 전투 시뮬레이션. 화면(Phaser)과 분리되어 있어서 테스트·오프라인 계산·서버 검증에 그대로 쓸 수 있다.
@@ -229,7 +234,7 @@ export class BattleSim {
   private makeMonster(): Monster {
     const stage = this.state.stage;
     const boss = isBossStage(stage);
-    const kind: MonsterKind = boss ? 'golem' : this.rng.pick(BIOME_MONSTERS[biomeOf(stage)]);
+    const kind: MonsterKind = boss ? BIOME_BOSS[biomeOf(stage)] : this.rng.pick(BIOME_MONSTERS[biomeOf(stage)]);
     const hp = monsterHp(stage);
     return { id: this.nextId++, kind, boss, hp, maxHp: hp, atk: monsterAtk(stage), gold: monsterGold(stage) };
   }

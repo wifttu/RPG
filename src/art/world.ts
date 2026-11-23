@@ -36,6 +36,20 @@ export const BIOMES: Biome[] = [
     ground: { top: '#8a7a5a', topLight: '#c0aa7a', dirt: '#5a4436', dirtDark: '#3e2e26', stone: '#a0948a' },
     midKind: 'ruins',
   },
+  {
+    name: '얼어붙은 설원',
+    far: ['#a8c4e0', '#d8e8f4'],
+    mid: ['#2a4a5a', '#3e6a7a', '#7ab0c0'],
+    ground: { top: '#e6f0f8', topLight: '#ffffff', dirt: '#9ab4cc', dirtDark: '#7c96b2', stone: '#c8d8e8' },
+    midKind: 'pines',
+  },
+  {
+    name: '불타는 화산',
+    far: ['#3a2232', '#5a2e3a'],
+    mid: ['#1e1424', '#2e1e30', '#4a2a3a'],
+    ground: { top: '#3a2a30', topLight: '#ff8a3a', dirt: '#2a1c22', dirtDark: '#1a1016', stone: '#5a3a3a' },
+    midKind: 'ruins',
+  },
 ];
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {

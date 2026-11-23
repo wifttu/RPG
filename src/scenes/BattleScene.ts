@@ -7,12 +7,16 @@ import { BIOMES, cloudCanvas, groundLayer, paintSky, skyAt, toTint } from '../ar
 import far0 from '../assets/bg/far0.png';
 import far1 from '../assets/bg/far1.png';
 import far2 from '../assets/bg/far2.png';
+import far3 from '../assets/bg/far3.png';
+import far4 from '../assets/bg/far4.png';
 import mid0 from '../assets/bg/mid0.png';
 import mid1 from '../assets/bg/mid1.png';
 import mid2 from '../assets/bg/mid2.png';
+import mid3 from '../assets/bg/mid3.png';
+import mid4 from '../assets/bg/mid4.png';
 
 /** PixelLab으로 만든 배경 (지역별 먼 산 + 중경). 좌우 거울 복사로 끊김 없이 이어진다. */
-const BG_URLS = { far: [far0, far1, far2], mid: [mid0, mid1, mid2] };
+const BG_URLS = { far: [far0, far1, far2, far3, far4], mid: [mid0, mid1, mid2, mid3, mid4] };
 import { BALANCE } from '../config/balance';
 import { biomeOf, type BattleEvent, type Monster, type MonsterKind } from '../core/battle';
 import type { Game } from '../core/game';
@@ -28,7 +32,7 @@ const MON_X = 98;
 const FEET_Y = GROUND_Y + 5;
 const FONT = 'Galmuri11, monospace';
 
-const MONSTER_KINDS: MonsterKind[] = ['slime', 'mushroom', 'bat', 'beetle', 'golem'];
+const MONSTER_KINDS: MonsterKind[] = ['slime', 'mushroom', 'bat', 'beetle', 'golem', 'yeti', 'dragon'];
 
 export class BattleScene extends Phaser.Scene {
   private core: Game;
@@ -184,6 +188,8 @@ export class BattleScene extends Phaser.Scene {
 
   private applyBiome(b: number): void {
     if (b === this.biome) return;
+    // 새 지역에 들어서면 이름을 띄운다 (첫 화면 제외)
+    if (this.biome !== -1) this.regionTitle(BIOMES[b].name);
     this.biome = b;
     this.far.setTexture(`far-${b}`);
     this.mid.setTexture(`mid-${b}`);
@@ -447,6 +453,22 @@ export class BattleScene extends Phaser.Scene {
       alpha: { from: 1, to: 0 },
       duration: big ? 800 : 650,
       ease: 'Quad.out',
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  private regionTitle(name: string): void {
+    const t = this.add
+      .text(VIEW_W / 2, 30, name, { fontFamily: FONT, fontSize: '12px', color: '#fff4c0', resolution: 1 })
+      .setOrigin(0.5)
+      .setShadow(1, 1, OUTLINE, 0, false, true)
+      .setAlpha(0);
+    this.tweens.chain({
+      targets: t,
+      tweens: [
+        { alpha: 1, y: 26, duration: 400 },
+        { alpha: 0, delay: 1600, duration: 500 },
+      ],
       onComplete: () => t.destroy(),
     });
   }
