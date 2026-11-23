@@ -45,3 +45,18 @@ far2의 해, mid1의 구름 조각은 지웠다 (게임이 해·구름을 따로
 |---|---|---|
 | hero_long.png | long dark brown hair flowing down the back past the shoulders | breathing-idle, walking, v3 slash (B와 같은 설정) |
 | hero_pony.png | dark brown hair tied in a high ponytail | 〃 |
+
+## 아이콘 (PixelLab `create-image-pixflux`, 32x32, no_background, 1장당 1회)
+
+프롬프트 형식: "<대상>, game UI icon, centered, bold readable shape, pixel art"
+
+| 파일 | 시드 | 대상 |
+|---|---|---|
+| coin.png | 31 | a shiny gold coin with a small embossed crown |
+| gem.png | 32 | a sparkling blue diamond gem |
+| fame.png | 33 | an orange star medal with a ribbon |
+| atk.png | 34 | a steel sword pointing diagonally up to the right |
+| hp.png | 35 | a glossy red heart |
+| spd.png | 36 | a winged leather boot with a yellow lightning bolt |
+| crown.png | 37 | a golden royal crown with red and blue jewels |
+| ad.png | 38 | a green play button inside a rounded screen |
