@@ -24,6 +24,7 @@ import { mix } from '../art/palette';
 import { fmt } from '../ui/format';
 import { audio } from '../audio/audio';
 import { heroClass, type WeaponKind } from '../core/gear';
+import { rankName } from '../core/rank';
 import { settings } from '../core/settings';
 
 export const VIEW_W = 160;
@@ -34,10 +35,12 @@ const MON_X = 98;
 const FEET_Y = GROUND_Y + 5;
 const FONT = 'Galmuri11, monospace';
 
+const SHADOW_TINT = 0x6a4aa8;
+
 /** 스킬이 '맞는 순간'까지 걸리는 시간 (처치 연출을 그때까지 미룬다) */
 const SKILL_IMPACT_MS: Record<WeaponKind, number> = { sword: 260, bow: 520, staff: 640 };
 
-const MONSTER_KINDS: MonsterKind[] = ['slime', 'mushroom', 'bat', 'beetle', 'golem', 'yeti', 'dragon'];
+const MONSTER_KINDS: Exclude<MonsterKind, 'shadow'>[] = ['slime', 'mushroom', 'bat', 'beetle', 'golem', 'yeti', 'dragon'];
 
 export class BattleScene extends Phaser.Scene {
   private core: Game;
@@ -284,7 +287,7 @@ export class BattleScene extends Phaser.Scene {
     for (const c of this.clouds) c.setTint(toTint(mix(ambient, '#ffffff', 0.2)));
     const charTint = toTint(mix(ambient, '#ffffff', 0.55));
     this.heroSprite.setTint(charTint);
-    this.monsterSprite?.setTint(charTint);
+    if (this.monsterData?.kind !== 'shadow') this.monsterSprite?.setTint(charTint);
 
     // 해/달: 왼쪽에서 떠서 오른쪽으로 진다
     const arcT = Math.min(1, t / 0.95);
@@ -292,6 +295,11 @@ export class BattleScene extends Phaser.Scene {
     const night = Phaser.Math.Clamp((t - 0.88) / 0.12, 0, 1);
     this.sun.setFillStyle(night > 0.5 ? 0xe8ecff : t > 0.7 ? 0xffb066 : 0xfff1b0);
     this.stars.setAlpha(night);
+  }
+
+  /** 몬스터 원래 색 (선조의 그림자는 어두운 보랏빛) */
+  private monTint(): number {
+    return this.monsterData?.kind === 'shadow' ? SHADOW_TINT : this.charTint();
   }
 
   private charTint(): number {
@@ -400,6 +408,24 @@ export class BattleScene extends Phaser.Scene {
         this.banner(e.reason === 'timeout' ? '시간 초과' : '도전 실패', '#ffb36b');
         this.clearMonster();
         break;
+      case 'trialStart':
+        this.banner(`승급 시련 · ${rankName(e.rank)}`, '#c9a8ff');
+        audio.play('boss');
+        break;
+      case 'trialWin':
+        this.time.delayedCall(300, () => {
+          this.banner(`칭호 획득! ${rankName(e.rank)}`, '#ffe08a');
+          this.punch(1.06, 0xfff4c0, 140);
+          this.shockwave(HERO_X, FEET_Y - 16, 0xffe08a, 40, 500);
+          this.sparks.setParticleTint(0xffe08a);
+          this.sparks.explode(30, HERO_X, FEET_Y - 20);
+          audio.play('fanfare');
+        });
+        break;
+      case 'trialFail':
+        this.banner(e.reason === 'timeout' ? '시련 시간 초과' : '시련 실패', '#ffb36b');
+        this.clearMonster();
+        break;
       case 'bonusChest':
         this.bonusChest(e.gold);
         break;
@@ -413,8 +439,17 @@ export class BattleScene extends Phaser.Scene {
   private spawnMonster(m: Monster): void {
     this.clearMonster();
     const b = biomeOf(this.core.state.stage);
-    const spr = this.add.sprite(0, 0, `mon-${m.kind}-${b}`).setOrigin(0.5, 1);
-    spr.setTint(this.charTint());
+    const shadow = m.kind === 'shadow';
+    // 선조의 그림자: 지금 가주의 모습을 뒤집어 어둡게 (자기 자신과 싸우는 시련)
+    const spr = shadow
+      ? this.add.sprite(0, 0, this.heroSprite.texture.key, 0).setOrigin(0.5, SHEET_FEET / FRAME).setFlipX(true)
+      : this.add.sprite(0, 0, `mon-${m.kind}-${b}`).setOrigin(0.5, 1);
+    if (shadow) {
+      this.monsterData = m;
+      spr.play(`${this.heroAnimBase}-idle`);
+      this.tweens.add({ targets: spr, alpha: 0.8, duration: 500, yoyo: true, repeat: -1 });
+    }
+    spr.setTint(shadow ? SHADOW_TINT : this.charTint());
     if (m.kind === 'bat') {
       // 날갯짓: 위아래로 떠다니며 살짝 눌렸다 펴진다
       spr.y = -12;
@@ -424,11 +459,11 @@ export class BattleScene extends Phaser.Scene {
     if (m.kind === 'mushroom' || m.kind === 'beetle') this.tweens.add({ targets: spr, scaleY: 0.95, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     if (m.kind === 'slime') this.tweens.add({ targets: spr, scaleY: 0.9, scaleX: 1.06, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     if (m.rank === 'elite') this.tweens.add({ targets: spr, alpha: 0.85, duration: 400, yoyo: true, repeat: -1 });
-    const shadow = this.add.ellipse(0, 0, m.boss ? 46 : 28, 6, m.rank === 'elite' ? 0x7a0010 : 0x000000, m.rank === 'elite' ? 0.45 : 0.28);
-    const c = this.add.container(VIEW_W + 20, FEET_Y, [shadow, spr]);
+    const ell = this.add.ellipse(0, 0, m.rank === 'trial' ? 22 : m.boss ? 46 : 28, 6, m.rank === 'elite' ? 0x7a0010 : m.rank === 'trial' ? 0x3a1a6a : 0x000000, m.rank === 'mob' ? 0.28 : 0.45);
+    const c = this.add.container(VIEW_W + 20, FEET_Y, [ell, spr]);
     // 스테이지 보스(정예): 같은 몬스터를 크게, 붉은 그림자
     if (m.rank === 'elite') c.setScale(1.35);
-    this.tweens.add({ targets: c, x: MON_X + (m.boss ? 8 : 0), duration: 220, ease: 'Quad.out' });
+    this.tweens.add({ targets: c, x: MON_X + (m.boss && !shadow ? 8 : 0), duration: 220, ease: 'Quad.out' });
     this.monster = c;
     this.monsterSprite = spr;
     this.monsterData = m;
@@ -466,7 +501,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.monster && this.monsterSprite) {
       const spr = this.monsterSprite;
       spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-      this.time.delayedCall(70, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.charTint()));
+      this.time.delayedCall(70, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.monTint()));
       this.tweens.add({ targets: this.monster, x: this.monster.x + (crit ? 5 : 2), duration: 50, yoyo: true });
       const hx = this.monster.x - 6;
       const hy = FEET_Y - spr.displayHeight / 2;
@@ -589,8 +624,8 @@ export class BattleScene extends Phaser.Scene {
     const spr = this.monsterSprite;
     if (!c || !spr) return;
     spr.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    this.time.delayedCall(110, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.charTint()));
-    const base = MON_X + (this.monsterData?.boss ? 8 : 0);
+    this.time.delayedCall(110, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.monTint()));
+    const base = MON_X + (this.monsterData?.boss && this.monsterData.kind !== 'shadow' ? 8 : 0);
     this.tweens.add({ targets: c, x: base + push, duration: 70, yoyo: true, hold: 60, ease: 'Quad.out' });
     const sx = spr.scaleX;
     const sy = spr.scaleY;

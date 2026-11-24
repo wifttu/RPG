@@ -10,6 +10,8 @@ export interface Hero {
   genes: Genes;
   age: number;
   maxStage: number;
+  /** 칭호 단계 (승급 시련, 0 = 견습생) */
+  rank?: number;
   /** 부모 이름 (1세대는 null) */
   parents: [string, string] | null;
 }
@@ -23,6 +25,8 @@ export interface LineageEntry {
   retiredAge: number;
   maxStage: number;
   fameEarned: number;
+  /** 은퇴할 때의 칭호 단계 */
+  rank?: number;
 }
 
 export interface GameState {
@@ -58,6 +62,8 @@ export interface GameState {
   autoBoss: boolean;
   /** 보너스 상자 게이지 (잡몹 처치 수) */
   bonusKills: number;
+  /** 가문이 오른 가장 높은 칭호 (첫 달성 보상용) */
+  bestRank: number;
   progress: Progress;
   daily: DailyState;
   attendance: { count: number; lastDay: string | null };
@@ -132,6 +138,8 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.stayMode ??= false;
   s.autoBoss ??= true;
   s.bonusKills ??= 0;
+  s.bestRank ??= 0;
+  s.hero.rank ??= 0;
   const base: Progress = {
     bossKills: 0,
     deaths: 0,
@@ -177,6 +185,7 @@ export function createHero(rng: Rng, genes: Genes, generation: number, parents: 
     genes,
     age: BALANCE.time.startAge,
     maxStage: 1,
+    rank: 0,
     parents,
   };
 }

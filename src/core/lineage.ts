@@ -83,6 +83,7 @@ export function retire(state: GameState, spouse: Candidate, child: Candidate, rn
     retiredAge: Math.floor(old.age),
     maxStage: old.maxStage,
     fameEarned,
+    rank: old.rank ?? 0,
   });
   state.fame += fameEarned;
   const heir = createHero(rng, child.genes, old.generation + 1, [old.name, spouse.name]);

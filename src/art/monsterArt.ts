@@ -5,7 +5,10 @@ import golemUrl from '../assets/monsters/golem.png';
 import yetiUrl from '../assets/monsters/yeti.png';
 import mushroomUrl from '../assets/monsters/mushroom.png';
 import slimeUrl from '../assets/monsters/slime.png';
-import type { MonsterKind } from '../core/battle';
+import type { MonsterKind as AnyKind } from '../core/battle';
+
+/** 그림이 있는 몬스터 (선조의 그림자는 영웅 그림을 쓴다) */
+type MonsterKind = Exclude<AnyKind, 'shadow'>;
 
 /**
  * PixelLab으로 만든 몬스터 그림. 지역(바이옴)마다 색상(hue)만 돌려서 재사용한다.

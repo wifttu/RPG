@@ -11,7 +11,7 @@ import { computeStats, fameMultiplier, secondsPerYear } from './stats';
 /**
  * 밸런스 확인용 자동 플레이. 실제 전투 시뮬레이션(BattleSim)을 그대로 돌린다.
  * 정책: 가장 싼 수련을 계속 구매, 30세 이후 최고 기록이 N년 동안 안 오르면 은퇴,
- * 배우자·자녀는 유전 점수가 가장 높은 후보를 고른다.
+ * 배우자·자녀는 유전 점수가 가장 높은 후보를 고른다. 승급 시련은 조건이 되면 바로 도전.
  */
 export interface GenReport {
   gen: number;
@@ -81,6 +81,8 @@ export function autoplay(o: AutoplayOptions): GenReport[] {
       if (buyTimer >= 1) {
         buyTimer = 0;
         buyCheapest(s);
+        // 승급 시련: 조건이 되면 도전, 지면 조금 더 강해진 뒤에
+        if (sim.trialReady && !sim.trialWaiting) sim.startTrial();
       }
       if (s.hero.maxStage > lastMax) {
         lastMax = s.hero.maxStage;

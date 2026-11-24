@@ -67,6 +67,14 @@ export const BALANCE = {
     /** 보스에게 지면, 전투력이 이 배율만큼 오른 뒤에 자동 도전 재개 */
     retryPowerGain: 1.15,
   },
+  /** 승급 시련 상대: 조건 스테이지 잡몹의 몇 배 */
+  rank: {
+    hpMul: 7,
+    atkMul: 2.2,
+    timeLimit: 30,
+    /** 지면 전투력이 이만큼 오른 뒤에 다시 (자동 플레이·안내용) */
+    retryPowerGain: 1.15,
+  },
   /** 보너스 상자: 잡몹을 이만큼 잡으면 상자 하나 (보스 도전과는 별개) */
   bonus: {
     kills: 40,

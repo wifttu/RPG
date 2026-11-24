@@ -267,6 +267,13 @@ export class Game {
     return ok;
   }
 
+  /** 승급 시련 시작 */
+  startTrial(): boolean {
+    const ok = this.sim.startTrial();
+    if (ok) track('trial_start', { rank: (this.state.hero.rank ?? 0) + 1 });
+    return ok;
+  }
+
   /** 보스 자동 도전 켜기/끄기 (끄면 잡몹만 계속 사냥) */
   setAutoBoss(on: boolean): void {
     this.state.autoBoss = on;

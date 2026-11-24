@@ -1511,3 +1511,56 @@ textarea.code {
 .rec.special {
   background: var(--legendary);
 }
+
+/* ───────── v0.6: 칭호 · 승급 시련 ───────── */
+.btn.purple {
+  background: #5a3a9a;
+  box-shadow:
+    inset 2px 2px 0 #8e6ad8,
+    inset -2px -2px 0 #33205e;
+}
+.rank-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rank-now b {
+  font-size: 16px;
+  color: #d9c2ff;
+  text-shadow: 1px 1px 0 var(--outline);
+}
+.rank-tag {
+  color: #d9c2ff;
+  font-weight: normal;
+}
+.stage-chip .trial {
+  color: #c9a8ff;
+}
+.trial-chip {
+  display: block;
+  pointer-events: auto;
+  font: inherit;
+  font-size: 10px;
+  margin-top: 4px;
+  color: #fff;
+  background: #5a3a9a;
+  border: 1px solid var(--outline);
+  box-shadow:
+    inset 1px 1px 0 #8e6ad8,
+    0 0 6px #a07ae8;
+  padding: 2px 6px;
+  cursor: pointer;
+  animation: ring 0.9s steps(2) infinite;
+}
+.trial-chip.wait,
+.trial-chip:disabled {
+  animation: none;
+  box-shadow: inset 1px 1px 0 #8e6ad8;
+}
+.trial-chip:disabled {
+  filter: grayscale(0.6);
+}
+.trial-chip[hidden] {
+  display: none;
+}

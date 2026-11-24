@@ -2,7 +2,8 @@ import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
-import { bossTimeLimit, houseBest, isBossStage, isMarchStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
+import { nextRank, rankMultiplier, rankName, RANKS, trialFoe } from '../core/rank';
+import { houseBest, isBossStage, isMarchStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
 import type { Game } from '../core/game';
 import { geneScore, type Genes } from '../core/genetics';
 import { canRetire, mustRetire, previewFame, type Candidate } from '../core/lineage';
@@ -93,6 +94,18 @@ export class UI {
     this.core.on('battle', (evs) => {
       for (const e of evs) {
         if (e.type === 'kill') this.pulse('.cur.gold');
+        if (e.type === 'trialWin') {
+          this.toast(
+            `칭호 「${rankName(e.rank)}」 획득! 공격력·체력 x${rankMultiplier(e.rank).toFixed(2)}${e.gems ? ` · 가문 첫 달성 보석 +${e.gems}` : ''}`,
+            3600,
+          );
+          track('trial_win', { rank: e.rank, gen: this.core.state.hero.generation });
+          if (this.tab === 'grow') this.renderPanel();
+        }
+        if (e.type === 'trialFail') {
+          this.toast('시련 실패… 수련으로 더 강해진 뒤 다시 도전해요 (스테이지는 그대로)', 3200);
+          track('trial_fail', { rank: e.rank, reason: e.reason });
+        }
         if (e.type === 'bossFail') {
           this.toast(
             this.core.state.autoBoss
@@ -115,6 +128,10 @@ export class UI {
     $('[data-boss]').addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.core.challengeBoss()) audio.play('boss');
+    });
+    $('[data-trial]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.startTrial();
     });
     $('[data-auto]').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -190,6 +207,7 @@ export class UI {
         <div class="bonus-bar" data-b="bonus" title="잡몹을 잡으면 차는 보너스 상자 게이지"><i><b data-b="bonusFill"></b></i><span>?</span></div>
         <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
         <button class="auto-chip" data-auto></button>
+        <button class="trial-chip" data-trial hidden></button>
         <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
         <div class="status-chips">
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
@@ -211,9 +229,11 @@ export class UI {
     n.classList.add('pulse');
   }
 
-  private set(name: string, text: string): void {
+  private set(name: string, text: string, html = false): void {
     document.querySelectorAll<HTMLElement>(`[data-b="${name}"]`).forEach((n) => {
-      if (n.textContent !== text) n.textContent = text;
+      if (html) {
+        if (n.innerHTML !== text) n.innerHTML = text;
+      } else if (n.textContent !== text) n.textContent = text;
     });
   }
 
@@ -223,7 +243,7 @@ export class UI {
     const now = Date.now();
 
     this.set('title', `${state.houseName} 가문 · ${hero.generation}대`);
-    this.set('heroLine', `가주 ${hero.name} · ${heroClass(state).name} · ${lifeStage(hero.age, stats.lifespan)}`);
+    this.set('heroLine', `${rankName(hero.rank ?? 0)} ${hero.name} · ${heroClass(state).name} · ${lifeStage(hero.age, stats.lifespan)}`);
     this.set('gold', fmt(state.gold));
     this.set('gems', fmt(state.gems));
     this.set('fame', fmt(state.fame));
@@ -239,7 +259,9 @@ export class UI {
     const regionStage = isBossStage(state.stage);
     const best = houseBest(state);
     const fighting = !!sim.monster?.boss;
-    const stageHtml = fighting
+    const stageHtml = sim.monster?.rank === 'trial'
+      ? `<span class="trial">승급 시련</span> ${rankName((state.hero.rank ?? 0) + 1)}`
+      : fighting
       ? `<span class="boss">${regionStage ? '지역 보스' : 'BOSS'}</span> 스테이지 ${state.stage}`
       : isMarchStage(state.stage, best)
         ? `스테이지 ${state.stage} <span class="march">빠른 진군</span>`
@@ -249,12 +271,21 @@ export class UI {
     $('[data-b="bonusFill"]').style.width = `${sim.bonusProgress * 100}%`;
     const bt = $('[data-b="bossTimer"]');
     bt.hidden = !fighting;
-    if (!bt.hidden) (bt.firstElementChild as HTMLElement).style.width = `${(sim.bossTimeLeft / bossTimeLimit(state.stage)) * 100}%`;
+    if (!bt.hidden) (bt.firstElementChild as HTMLElement).style.width = `${(sim.bossTimeLeft / sim.bossTimeMax) * 100}%`;
     // 보스 도전 버튼 / 자동 도전
     const bossBtn = $<HTMLButtonElement>('[data-boss]');
     bossBtn.hidden = fighting || isMarchStage(state.stage, best);
     bossBtn.disabled = !sim.canChallenge;
     bossBtn.classList.toggle('region', regionStage);
+    const trialBtn = $<HTMLButtonElement>('[data-trial]');
+    const nr = nextRank(state);
+    trialBtn.hidden = fighting || !nr || state.hero.maxStage < nr.stage;
+    if (!trialBtn.hidden) {
+      trialBtn.disabled = !sim.trialReady;
+      const t = `⚔ 승급 시련 · ${nr!.name}`;
+      if (trialBtn.textContent !== t) trialBtn.textContent = t;
+      trialBtn.classList.toggle('wait', sim.trialWaiting);
+    }
     const auto = $<HTMLButtonElement>('[data-auto]');
     const autoTxt = state.autoBoss ? '자동 도전 켬' : '자동 도전 끔';
     if (auto.textContent !== autoTxt) auto.textContent = autoTxt;
@@ -334,6 +365,14 @@ export class UI {
   private growHtml(): string {
     const h = this.core.state.hero;
     return `
+      <div class="card rank-card">
+        <h3>${iconImg('crown')} 칭호 <small>가주마다 새로 따는 이름</small></h3>
+        <div class="rank-row">
+          <div class="rank-now"><b data-b="rankNow"></b><span class="small muted" data-b="rankMul"></span></div>
+          <button class="btn purple" data-act="trial"><span data-b="trialLabel"></span></button>
+        </div>
+        <p class="small muted" style="margin:6px 0 0" data-b="rankNext"></p>
+      </div>
       <div class="card">
         <h3>${iconImg('atk')} 수련 <small>길게 누르면 연속 구매</small></h3>
         ${UPGRADE_KINDS.map(
@@ -405,6 +444,7 @@ export class UI {
           <div class="stat"><span>명성</span><b style="color:var(--fame)">${fmt(s.fame)}</b></div>
           <div class="stat"><span>명성 배율</span><b style="color:var(--good)">${fmtMul(fameMultiplier(s.fame))}</b></div>
           <div class="stat"><span>가문 최고 기록</span><b>${best} 스테이지</b></div>
+          <div class="stat"><span>가문 최고 칭호</span><b class="rank-tag">${RANKS[Math.max(s.bestRank, h.rank ?? 0)].name}</b></div>
           <div class="stat"><span>처치한 몬스터</span><b>${fmt(s.totalKills)}</b></div>
         </div>
         <p class="small muted" style="margin:8px 0 0">💡 같은 특성을 가진 배우자를 맞으면 그 특성이 자녀에게 이어질 확률이 50% → 75%로 올라가요.</p>
@@ -415,7 +455,7 @@ export class UI {
           <div class="gen current">
             <div class="thumb"><img src="${spriteUrl(h.genes)}" alt="" /></div>
             <div class="info">
-              <div class="n">${esc(h.name)} <small>${h.generation}대 · 현 가주</small></div>
+              <div class="n">${esc(h.name)} <small>${h.generation}대 · 현 가주 · <b class="rank-tag">${rankName(h.rank ?? 0)}</b></small></div>
               <div class="small muted"><span data-b="famAge"></span> · 최고 <span data-b="famStage"></span> 스테이지</div>
               <div class="chips">${traitChips(h.genes.traits)}</div>
             </div>
@@ -426,7 +466,7 @@ export class UI {
             <div class="gen">
               <div class="thumb"><img src="${spriteUrl(l.genes)}" alt="" /></div>
               <div class="info">
-                <div class="n">${esc(l.name)} <small>${l.generation}대 · ${l.retiredAge}세 은퇴</small></div>
+                <div class="n">${esc(l.name)} <small>${l.generation}대 · ${l.retiredAge}세 은퇴 · <b class="rank-tag">${rankName(l.rank ?? 0)}</b></small></div>
                 <div class="small muted">최고 ${l.maxStage} 스테이지 · 명성 +${fmt(l.fameEarned)}${l.spouse ? ` · 배우자 ${esc(l.spouse.name)}` : ''}</div>
                 <div class="chips">${traitChips(l.genes.traits)}</div>
               </div>
@@ -566,11 +606,18 @@ export class UI {
     }
   }
 
+  private startTrial(): void {
+    if (this.core.startTrial()) audio.play('boss');
+  }
+
   private action(act: string): void {
     const core = this.core;
     switch (act) {
       case 'retire':
         if (canRetire(core.state)) core.beginRetirement();
+        break;
+      case 'trial':
+        this.startTrial();
         break;
       case 'ad-boost':
         this.showAd('gold_boost', () => {
@@ -664,6 +711,31 @@ export class UI {
         this.set(`hl-cost-${h.kind}`, fmt(cost));
         const btn = $<HTMLButtonElement>(`[data-hl="${h.kind}"]`, this.panel);
         if (btn) btn.disabled = state.legacy < cost;
+      }
+      // 칭호
+      const rank = state.hero.rank ?? 0;
+      const nr = nextRank(state);
+      this.set('rankNow', rankName(rank));
+      this.set('rankMul', ` 공격력·체력 x${rankMultiplier(rank).toFixed(2)}`);
+      const tb = $<HTMLButtonElement>('[data-act="trial"]', this.panel);
+      if (tb) {
+        if (!nr) {
+          tb.hidden = true;
+          this.set('rankNext', '가장 높은 칭호에 올랐어요. 가문의 전설로 기록돼요.');
+        } else {
+          const reached = state.hero.maxStage >= nr.stage;
+          tb.disabled = !this.core.sim.trialReady;
+          this.set('trialLabel', reached ? `시련 도전 → ${nr.name}` : `스테이지 ${nr.stage} 필요`);
+          const firstGems = nr.rank > state.bestRank ? ` · 가문 첫 달성 보석 ${nr.gems}` : '';
+          const foe = trialFoe(nr.rank);
+          this.set(
+            'rankNext',
+            `다음: <b>${nr.name}</b> (공격력·체력 x${nr.mul.toFixed(2)}${firstGems})<br>` +
+              `선조의 그림자와 1대1 · ${BALANCE.rank.timeLimit}초 · 그림자 체력 ${fmt(foe.hp)}, 공격 ${fmt(foe.atk)}` +
+              (this.core.sim.trialWaiting ? '<br><span style="color:var(--bad)">지난 시련에서 졌어요. 조금 더 강해지면 좋아요.</span>' : ''),
+            true,
+          );
+        }
       }
       const rb = $<HTMLButtonElement>('[data-act="retire"]', this.panel);
       if (rb) {

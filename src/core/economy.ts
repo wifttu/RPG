@@ -20,7 +20,7 @@ export function buyUpgrade(state: GameState, kind: UpgradeKind): boolean {
 }
 
 /** 몬스터 등급: 잡몹 / 스테이지 보스(정예) / 지역 보스 */
-export type Rank = 'mob' | 'elite' | 'region';
+export type Rank = 'mob' | 'elite' | 'region' | 'trial';
 
 /** 지역 보스가 나오는 스테이지 (10, 20, 30 …) */
 export function isBossStage(stage: number): boolean {

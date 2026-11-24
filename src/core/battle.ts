@@ -13,11 +13,12 @@ import {
 } from './economy';
 import { heroClass, SKILLS, type WeaponKind } from './gear';
 import { legacyForBoss } from './heirloom';
+import { canTrial, MAX_RANK, RANKS, trialFoe } from './rank';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 import { computeStats, type HeroStats } from './stats';
 
-export type MonsterKind = 'slime' | 'mushroom' | 'bat' | 'beetle' | 'golem' | 'yeti' | 'dragon';
+export type MonsterKind = 'slime' | 'mushroom' | 'bat' | 'beetle' | 'golem' | 'yeti' | 'dragon' | 'shadow';
 
 export interface Monster {
   id: number;
@@ -46,7 +47,12 @@ export type BattleEvent =
   /** 보스 도전 시작 */
   | { type: 'bossStart'; stage: number; rank: Rank }
   /** 보스 도전 실패 → 같은 스테이지에서 계속 사냥 */
-  | { type: 'bossFail'; stage: number; reason: 'death' | 'timeout' };
+  | { type: 'bossFail'; stage: number; reason: 'death' | 'timeout' }
+  /** 승급 시련 시작 (rank: 도전하는 칭호) */
+  | { type: 'trialStart'; rank: number }
+  /** 승급 시련 통과: 칭호 상승 (gems: 가문 첫 달성 보상) */
+  | { type: 'trialWin'; rank: number; gems: number }
+  | { type: 'trialFail'; rank: number; reason: 'death' | 'timeout' };
 
 export const BIOME_COUNT = 5;
 export const STAGES_PER_BIOME = 20;
@@ -94,6 +100,10 @@ export class BattleSim {
   private bossQueued = false;
   /** 보스에게 진 뒤, 자동 도전을 다시 시작할 전투력 */
   private retryPower = 0;
+  /** 다음에 나올 상대가 승급 시련인지 */
+  private trialQueued = false;
+  /** 시련에서 진 뒤, 다시 도전을 권할 전투력 */
+  trialRetryPower = 0;
   /** 스킬 대기 시간 (처음에는 3초 뒤 바로 보여 준다) */
   skillCd = 3;
 
@@ -141,7 +151,38 @@ export class BattleSim {
 
   /** 지금 보스와 싸우는 중인지 (또는 곧 나오는지) */
   get bossActive(): boolean {
-    return !!this.monster?.boss || this.bossQueued;
+    return !!this.monster?.boss || this.bossQueued || this.trialQueued;
+  }
+
+  /** 지금 승급 시련 중인지 */
+  get trialActive(): boolean {
+    return this.monster?.rank === 'trial' || this.trialQueued;
+  }
+
+  /** 지금 싸우는 보스/시련의 제한 시간 */
+  get bossTimeMax(): number {
+    return this.monster?.rank === 'trial' ? BALANCE.rank.timeLimit : bossTimeLimit(this.state.stage);
+  }
+
+  /** 시련을 지금 바로 치를 수 있는지 */
+  get trialReady(): boolean {
+    return canTrial(this.state) && this.canChallenge;
+  }
+
+  /** 시련에서 졌고 아직 충분히 강해지지 않았는지 (안내용) */
+  get trialWaiting(): boolean {
+    return this.trialRetryPower > 0 && this.power() < this.trialRetryPower;
+  }
+
+  /** 승급 시련 시작: 싸우던 잡몹 대신 선조의 그림자가 나온다 */
+  startTrial(): boolean {
+    if (!this.trialReady) return false;
+    this.trialQueued = true;
+    if (this.monster && !this.monster.boss) {
+      this.monster = null;
+      this.spawnTimer = 0.35;
+    }
+    return true;
   }
 
   /** 보스에게 졌고, 자동 도전이 강해지기를 기다리는 중 */
@@ -201,6 +242,17 @@ export class BattleSim {
         this.retryPower = 0;
       }
       this.spawnTimer -= dt;
+      if (this.spawnTimer <= 0 && this.trialQueued) {
+        this.trialQueued = false;
+        this.monster = this.makeTrial();
+        this.heroHp = this.stats.maxHp;
+        this.heroCd = 0.4;
+        this.monsterCd = BALANCE.monster.attackInterval * 0.8;
+        this.bossTimeLeft = BALANCE.rank.timeLimit;
+        ev.push({ type: 'trialStart', rank: (this.state.hero.rank ?? 0) + 1 });
+        ev.push({ type: 'spawn', monster: this.monster });
+        return ev;
+      }
       if (this.spawnTimer <= 0) {
         this.monster = this.makeMonster(this.bossQueued);
         this.bossQueued = false;
@@ -281,8 +333,26 @@ export class BattleSim {
   private onKill(ev: BattleEvent[], m: Monster): void {
     const gold = m.gold * this.stats.goldMul;
     this.state.gold += gold;
-    this.state.totalKills++;
     this.monster = null;
+    if (m.rank === 'trial') {
+      // 시련 통과: 칭호 상승, 체력 회복, 가문 첫 달성이면 보석
+      const rank = Math.min(MAX_RANK, (this.state.hero.rank ?? 0) + 1);
+      this.state.hero.rank = rank;
+      let gems = 0;
+      if (rank > this.state.bestRank) {
+        this.state.bestRank = rank;
+        gems = RANKS[rank].gems;
+        this.state.gems += gems;
+      }
+      this.trialRetryPower = 0;
+      this.refreshStats();
+      this.heroHp = this.stats.maxHp;
+      this.spawnTimer = BALANCE.monster.spawnGap;
+      ev.push({ type: 'kill', monster: m, gold: 0, legacy: 0 });
+      ev.push({ type: 'trialWin', rank, gems });
+      return;
+    }
+    this.state.totalKills++;
     this.state.daily.kills++;
     let legacy = 0;
     const best = houseBest(this.state);
@@ -322,8 +392,16 @@ export class BattleSim {
 
   /** 보스에게 짐: 스테이지는 그대로 사냥을 계속한다 */
   private bossFailed(ev: BattleEvent[], reason: 'death' | 'timeout'): void {
+    const trial = this.monster?.rank === 'trial';
     this.monster = null;
     this.bossQueued = false;
+    if (trial) {
+      this.trialRetryPower = this.power() * BALANCE.rank.retryPowerGain;
+      this.heroHp = Math.max(this.heroHp, this.stats.maxHp * 0.5);
+      this.spawnTimer = BALANCE.monster.spawnGap + (reason === 'death' ? BALANCE.hero.respawnSec : 0);
+      ev.push({ type: 'trialFail', rank: (this.state.hero.rank ?? 0) + 1, reason });
+      return;
+    }
     this.retryPower = this.power() * BALANCE.monster.retryPowerGain;
     this.spawnTimer = BALANCE.monster.spawnGap + (reason === 'death' ? BALANCE.hero.respawnSec : 0);
     ev.push({ type: 'bossFail', stage: this.state.stage, reason });
@@ -343,6 +421,12 @@ export class BattleSim {
     this.killsInStage = 0;
     if (stage > this.state.hero.maxStage) this.state.hero.maxStage = stage;
     ev.push({ type: 'stageChange', stage, boss: isBossStage(stage), reason });
+  }
+
+  private makeTrial(): Monster {
+    const rank = Math.min(MAX_RANK, (this.state.hero.rank ?? 0) + 1);
+    const f = trialFoe(rank);
+    return { id: this.nextId++, kind: 'shadow', boss: true, rank: 'trial', hp: f.hp, maxHp: f.hp, atk: f.atk, gold: 0 };
   }
 
   private makeMonster(boss: boolean): Monster {
