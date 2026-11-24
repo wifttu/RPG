@@ -100,3 +100,26 @@ describe('소환 레벨', () => {
     expect(claimSummonLevel(s, new Rng(3))).toBeNull();
   });
 });
+
+import { activeOffers, canBuy, checkOffers, grantProduct, OFFER_HOURS } from '../src/core/products';
+
+describe('기간 한정 패키지', () => {
+  it('조건을 채우면 48시간 열리고, 한 번만 살 수 있고, 지나면 사라진다', () => {
+    const s = createNewGame(10, 0);
+    const T = 1_000_000;
+    expect(checkOffers(s, T)).toHaveLength(0);
+    s.progress.retirements = 1;
+    const opened = checkOffers(s, T);
+    expect(opened.map((o) => o.id)).toEqual(['offer_heir']);
+    expect(checkOffers(s, T + 1)).toHaveLength(0); // 다시 열리지 않음
+    expect(activeOffers(s, T + 1000)).toHaveLength(1);
+    const gems = s.gems;
+    expect(grantProduct(s, 'offer_heir', T + 1000)).toBe(true);
+    expect(s.gems).toBe(gems + 800);
+    expect(canBuy(s, 'offer_heir', T + 2000)).toBe(false);
+    // 다른 상품은 시간이 지나면 못 산다
+    s.bestRank = 3;
+    checkOffers(s, T);
+    expect(canBuy(s, 'offer_rank', T + OFFER_HOURS * 3_600_000 + 1)).toBe(false);
+  });
+});

@@ -16,7 +16,7 @@ import { buyHeirloom } from './heirloom';
 import { EVENT_RULES, pickFieldEvent, resolveEvent, type StoryEvent } from './events';
 import { autoEquip } from './equip';
 import { claimSummonLevel, drawGacha, equip, merge, mergeAll, parseKey, tierLabel, type DrawResult, type ItemKey } from './gear';
-import { grantProduct } from './products';
+import { checkOffers, grantProduct, type Offer } from './products';
 import { Rng } from './rng';
 import { exportSaveCode, loadGame, saveGame } from './save';
 import { createNewGame, type GameState, type HeirloomKind } from './state';
@@ -31,6 +31,8 @@ interface GameEvents {
   /** 이야기 사건 발생 (화면이 선택지를 띄운다) */
   story: StoryEvent;
   newGeneration: { fameEarned: number };
+  /** 기간 한정 패키지가 새로 열림 */
+  offer: Offer;
 }
 
 /** 게임 전체 상태와 규칙을 가진 루트 객체. 화면/UI는 이벤트를 구독만 한다. */
@@ -129,7 +131,10 @@ export class Game {
     }
 
     this.saveTimer += dtRaw;
-    if (this.saveTimer > 5) this.save(now);
+    if (this.saveTimer > 5) {
+      this.save(now);
+      this.checkOffers(now);
+    }
     this.maybeStory(dtRaw, now);
   }
 
@@ -179,6 +184,14 @@ export class Game {
       this.save();
     }
     return ok;
+  }
+
+  /** 성장 기념 한정 패키지 확인 (조건을 채우면 48시간 열림) */
+  checkOffers(now = clock.now()): void {
+    for (const o of checkOffers(this.state, now)) {
+      track('offer_open', { id: o.id });
+      this.emit('offer', o);
+    }
   }
 
   /** 가끔 이야기 사건이 일어난다 (튜토리얼 '가주의 일생' 이후, 최소 6분 간격) */
@@ -398,6 +411,7 @@ export class Game {
     this.sim = new BattleSim(this.state, this.rng);
     this.retiring = false;
     this.save();
+    this.checkOffers();
     this.emit('newGeneration', { fameEarned });
     this.emit('change', undefined);
     return fameEarned;

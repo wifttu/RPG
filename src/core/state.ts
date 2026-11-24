@@ -64,6 +64,8 @@ export interface GameState {
   bonusKills: number;
   /** 가문이 오른 가장 높은 칭호 (첫 달성 보상용) */
   bestRank: number;
+  /** 기간 한정 패키지: 열린 시각+48시간, 구매 여부 */
+  offers: Record<string, { until: number; bought: boolean }>;
   progress: Progress;
   daily: DailyState;
   attendance: { count: number; lastDay: string | null };
@@ -141,6 +143,7 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.autoBoss ??= true;
   s.bonusKills ??= 0;
   s.bestRank ??= 0;
+  s.offers ??= {};
   s.hero.rank ??= 0;
   const base: Progress = {
     bossKills: 0,

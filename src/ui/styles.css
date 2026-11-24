@@ -1597,3 +1597,19 @@ textarea.code {
 .summon .sbox[hidden] {
   display: none;
 }
+
+/* ───────── v0.6: 기간 한정 패키지 ───────── */
+.offer-card {
+  border-color: #e8822c;
+  box-shadow: 0 0 10px #e8822c55;
+}
+.tag.hot {
+  background: #c2402c;
+  color: #fff;
+}
+.offer-pop {
+  text-align: center;
+}
+#tabs [data-tab='shop'] {
+  position: relative;
+}

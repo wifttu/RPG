@@ -32,7 +32,7 @@
 ## 4. 인앱 결제
 
 - ✅ 상품 5종과 지급 로직 (`src/core/products.ts`), 테스트 결제 화면
-- ⬜ Play Console → 수익 창출 → 상품에 같은 ID로 등록: `starter`, `monthly`(30일 이용권), `gems550`, `noads`, `gems1200`
+- ⬜ Play Console → 수익 창출 → 상품에 같은 ID로 등록: `starter`, `monthly`(30일 이용권), `gems550`, `noads`, `gems1200`, 기간 한정 `offer_heir`, `offer_region`, `offer_rank`, `offer_summon`
 - ⬜ 결제 연결 방식 정하기 (추천: RevenueCat — 영수증 검증 서버를 대신 해 줌, 무료 구간 있음). 정하면 연결 코드를 만들어 드려요.
 - ⚠️ 결제는 **서버 영수증 검증** 없이 열면 안 돼요 (가짜 결제로 보석을 얻는 해킹이 흔함).
 

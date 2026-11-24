@@ -16,7 +16,7 @@ import { track, eventCounts } from '../core/analytics';
 import { clock } from '../core/clock';
 import { adFree, adsLeft, countAd, rewardText, type Mission, type Reward } from '../core/daily';
 import { HEIRLOOMS, heirloomCost, heirloomTitle } from '../core/heirloom';
-import { PRODUCTS, canBuy, formatKrw } from '../core/products';
+import { OFFER_HOURS, PRODUCTS, activeOffers, canBuy, findProduct, formatKrw, type Offer } from '../core/products';
 import { importSaveCode } from '../core/save';
 import { createNewGame } from '../core/state';
 import { nativeAds } from '../platform/ads';
@@ -119,6 +119,7 @@ export class UI {
     });
     this.core.on('newGeneration', () => this.renderPanel());
     this.core.on('story', () => this.queueModal(() => this.openStory()));
+    this.core.on('offer', (o) => this.queueModal(() => this.openOffer(o)));
     this.bindSound();
     $('[data-settings]').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -305,6 +306,9 @@ export class UI {
     // 임무 탭 알림 점
     const dot = $('#tabs [data-tab="quest"] .dot');
     if (dot) dot.hidden = !questBadge(state);
+    const offers = activeOffers(state, now);
+    const sdot = $('#tabs [data-tab="shop"] .dot');
+    if (sdot) sdot.hidden = offers.length === 0;
     const sp = $('[data-b="speed"]');
     sp.hidden = this.core.timeScale === 1;
     sp.textContent = `테스트 배속 x${this.core.timeScale}`;
@@ -330,7 +334,7 @@ export class UI {
     nav.innerHTML = tabs
       .map(
         ([id, label, icon]) =>
-          `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${icon}<span>${label}</span>${id === 'quest' ? '<i class="dot" hidden></i>' : ''}</button>`,
+          `<button data-tab="${id}" class="${id === this.tab ? 'on' : ''}">${icon}<span>${label}</span>${id === 'quest' || id === 'shop' ? '<i class="dot" hidden></i>' : ''}</button>`,
       )
       .join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
@@ -481,7 +485,24 @@ export class UI {
   // 상점 탭 ─────────────────────────
   private shopHtml(): string {
     const g = BALANCE.gems;
+    const offers = activeOffers(this.core.state, Date.now());
     return `
+      ${
+        offers.length
+          ? `<div class="card offer-card">
+        <h3>⏰ 기간 한정 <small>놓치면 다시 나오지 않아요</small></h3>
+        ${offers
+          .map(
+            ({ offer: p }) => `
+          <div class="shop-item">
+            <div class="meta"><b>${p.name}</b><span class="tag hot" data-b="offerLeft-${p.id}"></span><div class="small muted">${p.desc}</div></div>
+            <button class="btn gold" data-buy="${p.id}"><span>${formatKrw(p.priceKrw)}</span></button>
+          </div>`,
+          )
+          .join('')}
+      </div>`
+          : ''
+      }
       <div class="card">
         <h3>${iconImg('ad')} 무료 보상 <small>보상형 광고</small></h3>
         <div class="shop-item">
@@ -760,6 +781,7 @@ export class UI {
     } else if (this.tab === 'gear') {
       refreshGear(this.panel, this.core);
     } else if (this.tab === 'shop') {
+      for (const { offer, leftMs } of activeOffers(state, Date.now())) this.set(`offerLeft-${offer.id}`, `${fmtDuration(leftMs / 1000)} 남음`);
       const left = state.boostUntil - Date.now();
       this.set('boostInfo', left > 0 ? `남은 시간 ${fmtDuration(left / 1000)} (광고 보면 30분 연장)` : '사냥으로 얻는 골드가 2배');
       for (const [pl, act] of [
@@ -1042,8 +1064,35 @@ export class UI {
     });
   }
 
+  /** 한정 패키지가 열렸을 때 한 번 보여 주는 창 */
+  private openOffer(o: Offer): void {
+    if (!canBuy(this.core.state, o.id)) {
+      if (!this.modalOpen) this.modalQueue.shift()?.();
+      return;
+    }
+    audio.play('fanfare');
+    const { root, close } = this.openModal(`
+      <div class="offer-pop">
+        <span class="tag hot">${o.tag}</span>
+        <h2>${o.name}</h2>
+        <p class="lead">${o.desc}</p>
+        <div class="big-num">${formatKrw(o.priceKrw)}</div>
+        <p class="small muted">평소 상품보다 보석이 2배 이상 · ${OFFER_HOURS}시간 뒤 사라져요 (상점에서 다시 볼 수 있어요)</p>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-a="x">나중에</button>
+        <button class="btn gold" data-a="go">자세히 보기</button>
+      </div>`);
+    root.querySelector('[data-a="x"]')!.addEventListener('click', close);
+    root.querySelector('[data-a="go"]')!.addEventListener('click', () => {
+      close();
+      this.setTab('shop');
+      this.openPurchase(o.id);
+    });
+  }
+
   private openPurchase(id: string): void {
-    const p = PRODUCTS.find((x) => x.id === id);
+    const p = findProduct(id);
     if (!p || !canBuy(this.core.state, id)) return;
     track('iap_click', { id });
     const { root, close } = this.openModal(`
