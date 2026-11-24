@@ -1706,3 +1706,43 @@ textarea.code {
   background: color-mix(in srgb, var(--ac) 45%, transparent);
   z-index: -0;
 }
+
+/* ───────── v0.7: 전투 화면 배치 (영웅 머리를 가리지 않게 스킬은 아래로) ───────── */
+.chip-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 4px;
+}
+.chip-row .auto-chip,
+.chip-row .trial-chip {
+  margin-top: 0;
+}
+.skill-dock {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  pointer-events: none;
+}
+.skill-dock .skill-chip {
+  margin-top: 0;
+}
+.skill-dock .art-pips {
+  margin-top: 0;
+}
+.skill-dock .status-chips {
+  margin-top: 0;
+}
+.art-pips span {
+  width: 32px;
+  height: 16px;
+  line-height: 16px;
+  font-size: 9px;
+}
+.art-pips span.ready {
+  box-shadow: 0 0 5px var(--ac);
+}

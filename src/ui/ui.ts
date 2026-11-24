@@ -1,4 +1,4 @@
-import { heroPortraitUrl } from '../art/heroSheet';
+import { heroPortraitArmed, heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
@@ -21,11 +21,11 @@ import { OFFER_HOURS, PRODUCTS, activeOffers, canBuy, findProduct, formatKrw, ty
 import { importSaveCode } from '../core/save';
 import { createNewGame } from '../core/state';
 import { nativeAds } from '../platform/ads';
-import type { HeirloomKind } from '../core/state';
+import type { GameState, HeirloomKind } from '../core/state';
 import { questBadge, questHtml, refreshQuest } from './questPanel';
 import { bindGear, gearHtml, refreshGear } from './gearPanel';
 import { itemIconUrl } from '../art/itemIcons';
-import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, SKILLS, SUMMON_LEVELS, heroClass, type Slot } from '../core/gear';
+import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, SKILLS, SUMMON_LEVELS, heroClass, parseKey, rarityOf, type Slot } from '../core/gear';
 import { TALENT_LABEL } from '../core/genetics';
 import { settings, updateSettings } from '../core/settings';
 import { LIFE_EVENT_ODDS } from '../core/events';
@@ -48,6 +48,11 @@ function el(html: string): HTMLElement {
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const spriteUrl = (genes: Genes) => heroPortraitUrl(genes);
+/** 현 가주: 장착한 무기를 든 초상화 */
+const armedUrl = (s: GameState) => {
+  const k = s.gear?.equipped.weapon;
+  return heroPortraitArmed(s.hero.genes, heroClass(s).kind, k ? rarityOf(parseKey(k).tier) : 0);
+};
 
 function traitChips(ids: readonly string[], mutation?: string | null): string {
   if (!ids.length) return '<span class="chip common">특성 없음</span>';
@@ -208,13 +213,17 @@ export class UI {
         </div>
         <div class="bonus-bar" data-b="bonus" title="잡몹을 잡으면 차는 보너스 상자 게이지"><i><b data-b="bonusFill"></b></i><span>?</span></div>
         <div class="boss-timer" data-b="bossTimer" hidden><div></div></div>
-        <button class="auto-chip" data-auto></button>
-        <button class="trial-chip" data-trial hidden></button>
-        <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
-        <div class="art-pips" data-b="artPips"></div>
+        <div class="chip-row">
+          <button class="auto-chip" data-auto></button>
+          <button class="trial-chip" data-trial hidden></button>
+        </div>
+      </div>
+      <div class="skill-dock">
         <div class="status-chips">
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
         </div>
+        <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
+        <div class="art-pips" data-b="artPips"></div>
       </div>
       <div style="display:grid;gap:4px;justify-items:end">
         <div class="boost-chip" data-b="boost" hidden></div>
@@ -316,7 +325,9 @@ export class UI {
         .join('');
     }
     pips.querySelectorAll<HTMLElement>('[data-art-cd]').forEach((n) => {
-      n.style.height = `${this.core.sim.artReady(Number(n.dataset.artCd)) * 100}%`;
+      const r = this.core.sim.artReady(Number(n.dataset.artCd));
+      n.style.height = `${r * 100}%`;
+      n.parentElement?.classList.toggle('ready', r >= 0.98);
     });
     // 임무 탭 알림 점
     const dot = $('#tabs [data-tab="quest"] .dot');
@@ -432,7 +443,7 @@ export class UI {
       </div>
       <div class="card">
         <div class="hero-card">
-          <div class="portrait"><img src="${spriteUrl(h.genes)}" alt="" /></div>
+          <div class="portrait"><img src="${armedUrl(this.core.state)}" alt="" /></div>
           <div class="hero-info">
             <div class="name">${esc(h.name)} <span class="muted small">${h.generation}대 가주 · ${esc(HAIR[h.genes.hairColor].name)}</span></div>
             <div class="chips">${talentChip(h.genes)}${traitChips(h.genes.traits)}</div>
@@ -472,7 +483,7 @@ export class UI {
         <h3>가계도 <small>최근 세대부터</small></h3>
         <div class="tree">
           <div class="gen current">
-            <div class="thumb"><img src="${spriteUrl(h.genes)}" alt="" /></div>
+            <div class="thumb"><img src="${armedUrl(s)}" alt="" /></div>
             <div class="info">
               <div class="n">${esc(h.name)} <small>${h.generation}대 · 현 가주 · <b class="rank-tag">${rankName(h.rank ?? 0)}</b></small></div>
               <div class="small muted"><span data-b="famAge"></span> · 최고 <span data-b="famStage"></span> 스테이지</div>

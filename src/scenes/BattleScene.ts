@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ANIMS, FEET_Y as SHEET_FEET, FRAME, heroLookKey, heroSheetCanvas } from '../art/heroSheet';
+import { GRIP_ANGLE, GRIP_OFFSET, HAND, heldWeaponArt, heldWeaponKey } from '../art/heldWeapons';
 import { monsterArtCanvas } from '../art/monsterArt';
 import { coinCanvas } from '../art/monsters';
 import { OUTLINE, UI } from '../art/palette';
@@ -23,7 +24,7 @@ import type { Game } from '../core/game';
 import { mix } from '../art/palette';
 import { fmt } from '../ui/format';
 import { audio } from '../audio/audio';
-import { heroClass, type WeaponKind } from '../core/gear';
+import { heroClass, parseKey, rarityOf, type WeaponKind } from '../core/gear';
 import { rankName } from '../core/rank';
 import { ARTS, type ArtId } from '../core/skills';
 import { settings } from '../core/settings';
@@ -56,6 +57,15 @@ export class BattleScene extends Phaser.Scene {
   private heroSprite!: Phaser.GameObjects.Sprite;
   private attacking = false;
   private heroAnimBase = '';
+  /** 손에 든 무기 */
+  private weapon!: Phaser.GameObjects.Image;
+  private weaponKind: WeaponKind = 'sword';
+  private weaponRarity = 0;
+  /** 공격·스킬 때 무기를 드는 각도 (도) */
+  private pose = { a: 0, dx: 0, dy: 0 };
+  /** 비기·스킬용 추가 입자 (빛나게 더하기 합성) */
+  private fx!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private rise!: Phaser.GameObjects.Particles.ParticleEmitter;
   private monster: Phaser.GameObjects.Container | null = null;
   private monsterSprite: Phaser.GameObjects.Sprite | null = null;
   private monsterData: Monster | null = null;
@@ -106,11 +116,34 @@ export class BattleScene extends Phaser.Scene {
         this.playHero(this.isWalking() ? 'walk' : 'idle');
       }
     });
-    this.hero = this.add.container(HERO_X, FEET_Y, [shadow, this.heroSprite]);
+    this.weapon = this.add.image(0, 0, '__DEFAULT');
+    this.hero = this.add.container(HERO_X, FEET_Y, [shadow, this.heroSprite, this.weapon]);
     this.playHero('idle');
+    this.refreshWeapon();
+    this.core.on('change', () => this.refreshWeapon());
 
     this.bars = this.add.graphics();
 
+    this.fx = this.add.particles(0, 0, 'px3', {
+      speed: { min: 40, max: 150 },
+      angle: { min: 0, max: 360 },
+      lifespan: { min: 250, max: 650 },
+      scale: { start: 1, end: 0 },
+      gravityY: 140,
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    this.fx.setDepth(5);
+    this.rise = this.add.particles(0, 0, 'px', {
+      speedX: { min: -14, max: 14 },
+      speedY: { min: -70, max: -25 },
+      lifespan: { min: 500, max: 1000 },
+      scale: { start: 1.4, end: 0 },
+      alpha: { start: 1, end: 0 },
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    this.rise.setDepth(5);
     this.sparks = this.add.particles(0, 0, 'px', {
       speed: { min: 30, max: 90 },
       angle: { min: 0, max: 360 },
@@ -157,6 +190,83 @@ export class BattleScene extends Phaser.Scene {
     return key;
   }
 
+  // ───────────────────────── 손에 든 무기 ─────────────────────────
+  /** 무기 텍스처를 (없으면) 만들어 등록 */
+  private weaponTex(kind: WeaponKind, rarity: number, drawn = false): string {
+    const key = heldWeaponKey(kind, rarity, drawn);
+    if (!this.textures.exists(key)) this.textures.addCanvas(key, heldWeaponArt(kind, rarity, drawn).canvas);
+    return key;
+  }
+
+  /** 장착한 무기(종류·희귀도)를 손에 쥐여 준다. 장비가 바뀔 때마다 */
+  private refreshWeapon(): void {
+    const k = this.core.state.gear?.equipped.weapon;
+    const kind = heroClass(this.core.state).kind;
+    const rarity = k ? rarityOf(parseKey(k).tier) : 0;
+    const key = heldWeaponKey(kind, rarity);
+    if (this.weapon.texture.key === key) return;
+    this.weaponKind = kind;
+    this.weaponRarity = rarity;
+    const art = heldWeaponArt(kind, rarity);
+    this.weapon.setTexture(this.weaponTex(kind, rarity));
+    this.weapon.setOrigin(art.pivotX / art.canvas.width, art.pivotY / art.canvas.height);
+    this.weapon.setTint(this.charTint());
+    this.placeWeapon();
+  }
+
+  /** 프레임마다 손 위치에 무기를 붙인다 */
+  private placeWeapon(): void {
+    const hs = this.heroSprite;
+    const w = this.weapon;
+    const f = Number(hs.frame.name) || 0;
+    // 전사의 베기 프레임에는 시트에 검이 그려져 있다
+    if (f >= HAND.length) {
+      w.setVisible(this.weaponKind !== 'sword');
+      if (this.weaponKind === 'sword') return;
+    } else w.setVisible(true);
+    const h = HAND[Math.min(f, HAND.length - 1)];
+    const o = GRIP_OFFSET[this.weaponKind];
+    w.x = hs.x + (h.x + o.x - FRAME / 2) * hs.scaleX + this.pose.dx;
+    w.y = hs.y + (h.y + o.y - SHEET_FEET) * hs.scaleY + this.pose.dy;
+    w.angle = GRIP_ANGLE[this.weaponKind] + h.swing * (this.weaponKind === 'sword' ? 1 : 0.5) + this.pose.a;
+    w.alpha = hs.alpha;
+  }
+
+  /** 무기 끝(화살·마법이 나가는 곳)의 화면 좌표 */
+  private weaponTip(): { x: number; y: number } {
+    this.placeWeapon();
+    const art = heldWeaponArt(this.weaponKind, this.weaponRarity);
+    const r = this.weapon.rotation;
+    const c = Math.cos(r);
+    const sn = Math.sin(r);
+    return {
+      x: this.hero.x + this.weapon.x + art.tipX * c - art.tipY * sn,
+      y: this.hero.y + this.weapon.y + art.tipX * sn + art.tipY * c,
+    };
+  }
+
+  /** 활시위를 당겼다 놓는다 */
+  private drawBow(holdMs = 90): void {
+    if (this.weaponKind !== 'bow') return;
+    this.weapon.setTexture(this.weaponTex('bow', this.weaponRarity, true));
+    this.time.delayedCall(holdMs, () => {
+      if (this.weaponKind === 'bow') this.weapon.setTexture(this.weaponTex('bow', this.weaponRarity));
+    });
+  }
+
+  /** 무기를 휘두르듯 각도를 잠깐 바꾼다 */
+  private posePunch(a: number, ms: number, dx = 0, dy = 0): void {
+    this.tweens.killTweensOf(this.pose);
+    this.tweens.add({ targets: this.pose, a, dx, dy, duration: ms, yoyo: true, ease: 'Quad.out' });
+  }
+
+  /** 무기 끝이 반짝 */
+  private tipFlash(color: number, r = 4): void {
+    const t = this.weaponTip();
+    const c = this.add.circle(t.x, t.y, r, color, 0.9).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: c, scale: 2, alpha: 0, duration: 200, onComplete: () => c.destroy() });
+  }
+
   private playHero(name: keyof typeof ANIMS, opts: { duration?: number } = {}): void {
     const key = `${this.heroAnimBase}-${name}`;
     if (name !== 'slash' && this.heroSprite.anims.currentAnim?.key === key) return;
@@ -182,6 +292,22 @@ export class BattleScene extends Phaser.Scene {
     pctx.fillStyle = '#fff';
     pctx.fillRect(0, 0, 2, 2);
     t.addCanvas('px', px);
+    const px3 = document.createElement('canvas');
+    px3.width = px3.height = 3;
+    const p3 = px3.getContext('2d')!;
+    p3.fillStyle = '#fff';
+    p3.fillRect(0, 1, 3, 1);
+    p3.fillRect(1, 0, 1, 3);
+    t.addCanvas('px3', px3);
+    // 반짝이 (5x5 십자)
+    const st5 = document.createElement('canvas');
+    st5.width = st5.height = 5;
+    const s5 = st5.getContext('2d')!;
+    s5.fillStyle = '#fff';
+    s5.fillRect(0, 2, 5, 1);
+    s5.fillRect(2, 0, 1, 5);
+    s5.fillRect(1, 1, 3, 3);
+    t.addCanvas('star5', st5);
 
     // 화살 (12x3) 과 마법 구슬 (7x7)
     const arrow = document.createElement('canvas');
@@ -288,6 +414,7 @@ export class BattleScene extends Phaser.Scene {
     for (const c of this.clouds) c.setTint(toTint(mix(ambient, '#ffffff', 0.2)));
     const charTint = toTint(mix(ambient, '#ffffff', 0.55));
     this.heroSprite.setTint(charTint);
+    this.weapon?.setTint(charTint);
     if (this.monsterData?.kind !== 'shadow') this.monsterSprite?.setTint(charTint);
 
     // 해/달: 왼쪽에서 떠서 오른쪽으로 진다
@@ -320,6 +447,14 @@ export class BattleScene extends Phaser.Scene {
     for (const c of this.clouds) {
       c.x -= (3 + speed * 0.05) * dt;
       if (c.x < -42) c.x = VIEW_W + 4;
+    }
+
+    this.placeWeapon();
+    // 영웅·전설 무기는 끝에서 반짝인다
+    if (this.weaponRarity >= 3 && this.weapon.visible && !this.heroDown && Math.random() < dt * (this.weaponRarity === 4 ? 6 : 3)) {
+      const t = this.weaponTip();
+      this.rise.setParticleTint(this.weaponRarity === 4 ? 0xffd27a : 0xd9a8ff);
+      this.rise.emitParticleAt(t.x + Phaser.Math.Between(-2, 2), t.y + Phaser.Math.Between(-2, 2), 1);
     }
 
     // 숨쉬기 / 걷기 흔들림
@@ -360,10 +495,11 @@ export class BattleScene extends Phaser.Scene {
         this.held.push(e);
         continue;
       }
-      if (e.type === 'skill') {
-        this.castSkill(e.kind, e.hits);
+      if (e.type === 'skill' || e.type === 'art') {
+        const ms = e.type === 'skill' ? (this.castSkill(e.kind, e.hits), SKILL_IMPACT_MS[e.kind]) : this.castArt(e.id, e.hits, e.heal);
+        if (ms <= 0) continue;
         this.holding = true;
-        this.time.delayedCall(SKILL_IMPACT_MS[e.kind], () => {
+        this.time.delayedCall(ms, () => {
           const q = this.held;
           this.held = [];
           this.holding = false;
@@ -408,9 +544,6 @@ export class BattleScene extends Phaser.Scene {
       case 'bossFail':
         this.banner(e.reason === 'timeout' ? '시간 초과' : '도전 실패', '#ffb36b');
         this.clearMonster();
-        break;
-      case 'art':
-        this.castArt(e.id, e.hits, e.heal);
         break;
       case 'trialStart':
         this.banner(`승급 시련 · ${rankName(e.rank)}`, '#c9a8ff');
@@ -463,8 +596,22 @@ export class BattleScene extends Phaser.Scene {
     if (m.kind === 'mushroom' || m.kind === 'beetle') this.tweens.add({ targets: spr, scaleY: 0.95, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     if (m.kind === 'slime') this.tweens.add({ targets: spr, scaleY: 0.9, scaleX: 1.06, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     if (m.rank === 'elite') this.tweens.add({ targets: spr, alpha: 0.85, duration: 400, yoyo: true, repeat: -1 });
+    const parts: Phaser.GameObjects.GameObject[] = [];
+    if (shadow) {
+      // 그림자도 같은 무기를 든다 (좌우 반전)
+      const h = HAND[0];
+      const o = GRIP_OFFSET[this.weaponKind];
+      const art = heldWeaponArt(this.weaponKind, this.weaponRarity);
+      const w = this.add
+        .image(-(h.x + o.x - FRAME / 2), h.y + o.y - SHEET_FEET, this.weaponTex(this.weaponKind, this.weaponRarity))
+        .setOrigin(1 - art.pivotX / art.canvas.width, art.pivotY / art.canvas.height)
+        .setFlipX(true)
+        .setAngle(-GRIP_ANGLE[this.weaponKind])
+        .setTint(SHADOW_TINT);
+      parts.push(w);
+    }
     const ell = this.add.ellipse(0, 0, m.rank === 'trial' ? 22 : m.boss ? 46 : 28, 6, m.rank === 'elite' ? 0x7a0010 : m.rank === 'trial' ? 0x3a1a6a : 0x000000, m.rank === 'mob' ? 0.28 : 0.45);
-    const c = this.add.container(VIEW_W + 20, FEET_Y, [ell, spr]);
+    const c = this.add.container(VIEW_W + 20, FEET_Y, [ell, spr, ...parts]);
     // 스테이지 보스(정예): 같은 몬스터를 크게, 붉은 그림자
     if (m.rank === 'elite') c.setScale(1.35);
     this.tweens.add({ targets: c, x: MON_X + (m.boss && !shadow ? 8 : 0), duration: 220, ease: 'Quad.out' });
@@ -492,8 +639,13 @@ export class BattleScene extends Phaser.Scene {
       // 궁수·마법사: 베기 대신 반동 + 화살/마법 구슬이 날아간다
       this.tweens.add({ targets: this.heroSprite, x: -2, duration: 60, yoyo: true, ease: 'Quad.out' });
       if (cls.kind === 'staff') {
-        this.heroSprite.setTint(0xc9a8ff);
-        this.time.delayedCall(80, () => this.heroSprite.setTint(this.charTint()));
+        // 지팡이를 앞으로 내밀며 보석이 번쩍
+        this.posePunch(24, 70, 3, -2);
+        this.tipFlash(0xc9a8ff, 3);
+      } else {
+        // 시위를 당겼다 놓는다
+        this.drawBow(Math.min(110, interval * 0.5));
+        this.posePunch(-4, 60, -2, 0);
       }
       if (this.monster && this.monsterSprite) this.shoot(cls.kind === 'bow' ? 'arrow' : 'orb', crit);
     } else {
@@ -598,14 +750,14 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /** 스킬 이름 팝업 */
-  private skillTitle(name: string, color: string): void {
+  private skillTitle(name: string, color: string, y = 58): void {
     const t = this.add
-      .text(VIEW_W / 2 + 10, 58, name, { fontFamily: FONT, fontSize: '12px', color, resolution: 1 })
+      .text(VIEW_W / 2 + 10, y, name, { fontFamily: FONT, fontSize: '12px', color, resolution: 1 })
       .setOrigin(0.5)
       .setShadow(1, 1, OUTLINE, 0, false, true)
       .setScale(1.8);
     this.tweens.add({ targets: t, scale: 1, duration: 140, ease: 'Back.out' });
-    this.tweens.add({ targets: t, alpha: 0, y: 52, delay: 650, duration: 300, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, alpha: 0, y: y - 6, delay: 650, duration: 300, onComplete: () => t.destroy() });
   }
 
   /** 큰 피해 숫자: 크게 튀어나왔다가 작아진다 (화면 밖으로 넘치지 않게) */
@@ -636,88 +788,328 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: spr, scaleX: sx * 1.18, scaleY: sy * 0.82, duration: 60, yoyo: true });
   }
 
-  /** 가문 비기 연출 (바로 맞는 짧은 기술) */
-  private castArt(id: ArtId, hits: { damage: number; crit: boolean }[], heal: number): void {
+  // ───────────────────────── 가문 비기 연출 ─────────────────────────
+  /** 마법진: 두 겹 고리 + 돌아가는 룬 점 */
+  private magicCircle(x: number, y: number, color: number, r: number, ms: number, flat = 0.45): void {
+    const g = this.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
+    const st = { t: 0, s: 0.2, a: 1 };
+    this.tweens.add({ targets: st, s: 1, duration: 160, ease: 'Back.out' });
+    this.tweens.add({ targets: st, a: 0, delay: ms - 200, duration: 200 });
+    this.tweens.add({
+      targets: st,
+      t: 1,
+      duration: ms,
+      onUpdate: () => {
+        g.clear();
+        const R = r * st.s;
+        g.lineStyle(1, color, st.a).strokeEllipse(x, y, R * 2, R * 2 * flat);
+        g.lineStyle(1, color, st.a * 0.7).strokeEllipse(x, y, R * 1.4, R * 1.4 * flat);
+        for (let i = 0; i < 8; i++) {
+          const ang = st.t * Math.PI * 2 + (i / 8) * Math.PI * 2;
+          g.fillStyle(0xffffff, st.a).fillRect(Math.round(x + Math.cos(ang) * R * 0.85), Math.round(y + Math.sin(ang) * R * 0.85 * flat), 1, 1);
+        }
+      },
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  /** 색 번쩍임 (화면 흔들림 끔 설정에서도 약하게는 보여 준다) */
+  private colorFlash(color: number, ms = 90): void {
+    this.cameras.main.flash(ms, (color >> 16) & 255, (color >> 8) & 255, color & 255);
+  }
+
+  /** 빛나는 입자 폭발 */
+  private burst(x: number, y: number, color: number, n: number): void {
+    this.fx.setParticleTint(color);
+    this.fx.explode(n, x, y);
+  }
+
+  /** 지그재그 번개 한 줄기 (굵은 겉 + 흰 속, 가지 1~2개) */
+  private bolt(x: number, y1: number, color: number, thick: number): void {
+    const g = this.add.graphics().setDepth(4);
+    const pts: [number, number][] = [[x + Phaser.Math.Between(-4, 4), -4]];
+    let cx = pts[0][0];
+    for (let y = 8; y < y1; y += 8) {
+      cx += Phaser.Math.Between(-6, 6);
+      pts.push([cx, y]);
+    }
+    pts.push([x, y1]);
+    const stroke = (w: number, c: number, list: [number, number][]) => {
+      g.lineStyle(w, c, 1).beginPath();
+      g.moveTo(list[0][0], list[0][1]);
+      for (const p of list.slice(1)) g.lineTo(p[0], p[1]);
+      g.strokePath();
+    };
+    stroke(thick + 2, color, pts);
+    stroke(1, 0xffffff, pts);
+    // 가지
+    for (let k = 0; k < 2; k++) {
+      const i = Phaser.Math.Between(1, Math.max(1, pts.length - 3));
+      const [bx, by] = pts[i];
+      const br: [number, number][] = [[bx, by], [bx + Phaser.Math.Between(-12, 12), by + 7], [bx + Phaser.Math.Between(-16, 16), by + 14]];
+      stroke(1, color, br);
+    }
+    this.tweens.add({ targets: g, alpha: 0, duration: 220, delay: 40, onComplete: () => g.destroy() });
+  }
+
+  /** 비기 연출. 돌려주는 값 = 맞는 순간까지 걸리는 시간(ms) — 그동안 처치 연출을 미룬다 */
+  private castArt(id: ArtId, hits: { damage: number; crit: boolean }[], heal: number): number {
     const a = ARTS[id];
     const col = Phaser.Display.Color.HexStringToColor(a.color).color;
     const tx = this.monster ? this.monster.x : MON_X;
     const ty = FEET_Y - (this.monsterSprite ? this.monsterSprite.displayHeight / 2 : 14);
-    this.floatText(a.name, HERO_X, FEET_Y - 52, a.color, false);
     const total = hits.reduce((x, h) => x + h.damage, 0);
     const anyCrit = hits.some((h) => h.crit);
-    const impact = (push: number) => {
-      this.monsterImpact(push);
-      this.sparks.setParticleTint(col);
-      this.sparks.explode(14, tx - 2, ty);
-    };
+    const num = () => total > 0 && this.bigNumber(`${fmt(total)}${anyCrit ? '!' : ''}`, tx, ty - 10, anyCrit ? UI.crit : a.color);
+    const hs = this.heroSprite;
+    this.skillTitle(a.name, a.color, 46);
+    // 공통 준비 동작: 무기를 치켜들고 발밑에서 빛
+    this.posePunch(this.weaponKind === 'sword' ? -70 : 25, 120, 0, -2);
+    this.burst(HERO_X, FEET_Y - 2, col, 8);
+
     if (id === 'flame') {
-      audio.play('crit');
-      this.tweens.add({ targets: this.heroSprite, x: 6, duration: 70, yoyo: true });
-      this.slashArc(tx - 4, ty, 14, col, 0);
-      this.hitStop(50);
-      impact(8);
-      this.shockwave(tx - 4, ty, col, 20, 240);
-    } else if (id === 'frost') {
-      audio.play('volley');
-      hits.forEach((_, i) => {
-        const shard = this.add.rectangle(tx + 30 + i * 8, -10, 3, 12, col).setAngle(-35);
+      // 무기 끝에 불꽃이 모였다가 → 불덩이 → 폭발
+      audio.play('whirl', 0.6);
+      const tip = this.weaponTip();
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2;
+        const p = this.add.image(tip.x + Math.cos(ang) * 14, tip.y + Math.sin(ang) * 10, 'px3').setTint(col).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: p, x: tip.x, y: tip.y, duration: 110, ease: 'Quad.in', onComplete: () => p.destroy() });
+      }
+      this.time.delayedCall(110, () => {
+        audio.play('crit');
+        const from = this.weaponTip();
+        const ball = this.add.image(from.x, from.y, 'orb').setScale(2.4).setTint(col).setBlendMode(Phaser.BlendModes.ADD).setDepth(4);
+        const core = this.add.circle(from.x, from.y, 3, 0xfff1b0).setDepth(4);
+        this.tweens.add({ targets: ball, angle: 540, duration: 190 });
         this.tweens.add({
-          targets: shard,
-          x: tx - 2 + i * 4,
+          targets: [ball, core],
+          x: tx - 2,
           y: ty,
-          duration: 220,
-          delay: i * 110,
+          duration: 190,
           ease: 'Quad.in',
+          onUpdate: () => {
+            this.rise.setParticleTint(Math.random() < 0.5 ? col : 0xffe08a);
+            this.rise.emitParticleAt(ball.x, ball.y, 2);
+          },
           onComplete: () => {
-            shard.destroy();
-            impact(4);
-            audio.play('hit');
+            ball.destroy();
+            core.destroy();
+            this.hitStop(70);
+            this.punch(1.07, 0xffc080, 90);
+            this.shockwave(tx - 2, ty, 0xff8a3a, 34, 380);
+            this.shockwave(tx - 2, ty, 0xfff1b0, 20, 260);
+            this.burst(tx - 2, ty, 0xff8a3a, 26);
+            this.burst(tx - 2, ty, 0xffe08a, 14);
+            this.rise.setParticleTint(0xff8a3a);
+            this.rise.explode(16, tx, FEET_Y - 4);
+            this.monsterImpact(10);
+            this.shake(160, 0.009);
+            // 불타는 깜빡임
+            const spr = this.monsterSprite;
+            for (let k = 0; k < 3; k++)
+              this.time.delayedCall(140 + k * 120, () => {
+                if (!spr?.active) return;
+                spr.setTintMode(Phaser.TintModes.FILL).setTint(0xff8a3a);
+                this.time.delayedCall(50, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.monTint()));
+              });
+            num();
           },
         });
       });
-    } else if (id === 'quake') {
-      audio.play('boss', 0.7);
-      this.shake(220, 0.012);
-      this.shockwave(tx, FEET_Y, col, 36, 380);
-      this.time.delayedCall(160, () => this.shockwave(tx, FEET_Y, col, 26, 300));
-      this.dust.emitParticleAt(tx, FEET_Y, 10);
-      impact(6);
-    } else if (id === 'thunder') {
-      audio.play('meteor', 0.6);
-      hits.forEach((_, i) =>
-        this.time.delayedCall(i * 120, () => {
-          const g = this.add.graphics();
-          g.lineStyle(2, col, 1);
-          let x = tx + Phaser.Math.Between(-6, 6);
-          g.beginPath();
-          g.moveTo(x, 0);
-          for (let y = 12; y <= ty; y += 12) {
-            x += Phaser.Math.Between(-5, 5);
-            g.lineTo(x, Math.min(y, ty));
-          }
-          g.strokePath();
-          this.cameras.main.flash(50, 255, 250, 200);
-          impact(3);
-          this.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+      return 300;
+    }
+
+    if (id === 'frost') {
+      // 적 발밑 마법진 → 하늘에서 얼음 창이 꽂히고 → 산산조각 + 얼어붙음
+      audio.play('volley', 0.6);
+      this.magicCircle(tx, FEET_Y, col, 22, 700);
+      const spear = (i: number) => {
+        const g = this.add.graphics().setDepth(4);
+        g.fillStyle(col, 1).fillTriangle(0, -10, 3, 0, -3, 0).fillTriangle(0, 9, 3, 0, -3, 0);
+        g.fillStyle(0xffffff, 1).fillTriangle(0, -8, 1, 0, -1, 0);
+        const sx = tx + 34 + i * 10;
+        g.setPosition(sx, -14).setAngle(-140);
+        const trail = this.time.addEvent({
+          delay: 20,
+          repeat: 8,
+          callback: () => {
+            const p = this.add.image(g.x, g.y, 'px3').setTint(0xdff6ff).setBlendMode(Phaser.BlendModes.ADD).setDepth(4);
+            this.tweens.add({ targets: p, alpha: 0, scale: 0.3, duration: 220, onComplete: () => p.destroy() });
+          },
+        });
+        this.tweens.add({
+          targets: g,
+          x: tx - 2 + i * 4,
+          y: ty,
+          duration: 150,
+          delay: i * 150,
+          ease: 'Quad.in',
+          onComplete: () => {
+            trail.remove();
+            g.destroy();
+            audio.play('hit');
+            this.hitStop(40);
+            this.colorFlash(0xbfe8ff, 60);
+            this.burst(tx - 2, ty, 0xffffff, 12);
+            this.burst(tx - 2, ty, col, 16);
+            this.shockwave(tx, ty, col, 22 + i * 8, 300);
+            this.monsterImpact(5);
+            const spr = this.monsterSprite;
+            if (spr?.active) {
+              spr.setTintMode(Phaser.TintModes.FILL).setTint(0xbfe8ff);
+              this.time.delayedCall(260, () => spr.active && spr.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.monTint()));
+            }
+            if (i === hits.length - 1) {
+              num();
+              this.rise.setParticleTint(0xdff6ff);
+              this.rise.explode(14, tx, ty);
+            }
+          },
+        });
+      };
+      hits.forEach((_, i) => spear(i));
+      return 150 * hits.length + 80;
+    }
+
+    if (id === 'quake') {
+      // 높이 뛰어올라 → 땅을 내리찍으면 → 갈라진 땅이 적까지 → 바위가 솟구친다
+      audio.play('whirl', 0.5);
+      this.tweens.add({ targets: hs, y: -14, duration: 140, ease: 'Quad.out' });
+      this.time.delayedCall(140, () =>
+        this.tweens.add({
+          targets: hs,
+          y: 0,
+          duration: 80,
+          ease: 'Quad.in',
+          onComplete: () => {
+            audio.play('boss', 0.4);
+            this.hitStop(70);
+            this.punch(1.06, 0xd8a860, 80);
+            this.shake(320, 0.016);
+            this.shockwave(HERO_X, FEET_Y, col, 30, 360);
+            this.dust.emitParticleAt(HERO_X - 6, FEET_Y - 1, 12);
+            // 땅이 갈라지는 금
+            const g = this.add.graphics().setDepth(3);
+            const st = { t: 0 };
+            this.tweens.add({
+              targets: st,
+              t: 1,
+              duration: 120,
+              onUpdate: () => {
+                g.clear();
+                g.lineStyle(2, 0xffb36b, 1).beginPath();
+                let x = HERO_X + 6;
+                g.moveTo(x, FEET_Y);
+                const end = HERO_X + 6 + (tx - HERO_X - 6) * st.t;
+                let k = 0;
+                while (x < end) {
+                  x = Math.min(end, x + 6);
+                  g.lineTo(x, FEET_Y + (k++ % 2 ? 1 : -1));
+                }
+                g.strokePath();
+              },
+            });
+            this.tweens.add({ targets: g, alpha: 0, delay: 360, duration: 300, onComplete: () => g.destroy() });
+            this.time.delayedCall(120, () => {
+              // 바위 기둥 + 파편
+              for (let i = 0; i < 3; i++) {
+                const rock = this.add
+                  .triangle(tx - 10 + i * 10, FEET_Y + 3, 0, 14 + i * 4, 4, 0, 8, 14 + i * 4, 0x9a7a52)
+                  .setOrigin(0.5, 1)
+                  .setStrokeStyle(1, 0x2a1a10)
+                  .setDepth(3)
+                  .setScale(1, 0);
+                this.tweens.add({ targets: rock, scaleY: 1, duration: 90, delay: i * 40, yoyo: true, hold: 200, ease: 'Back.out', onComplete: () => rock.destroy() });
+              }
+              this.burst(tx, FEET_Y - 4, 0xd8a860, 22);
+              this.dust.emitParticleAt(tx, FEET_Y - 1, 14);
+              const m = this.monster;
+              if (m) this.tweens.add({ targets: m, y: FEET_Y - 12, duration: 120, yoyo: true, ease: 'Quad.out' });
+              this.monsterImpact(4);
+              num();
+            });
+          },
         }),
       );
-    } else if (id === 'heal') {
-      audio.play('reward', 0.7);
-      for (let i = 0; i < 10; i++) {
-        const p = this.add.image(HERO_X + Phaser.Math.Between(-10, 10), FEET_Y - Phaser.Math.Between(0, 20), 'px').setTint(col);
-        this.tweens.add({ targets: p, y: p.y - 24, alpha: 0, duration: 600, delay: i * 30, onComplete: () => p.destroy() });
-      }
-      this.heroSprite.setTint(col);
-      this.time.delayedCall(160, () => this.heroSprite.setTint(this.charTint()));
-      if (heal > 0) this.floatText(`+${fmt(heal)}`, HERO_X, FEET_Y - 36, '#7ce68a', false);
-    } else if (id === 'fury') {
-      audio.play('whirl', 0.7);
-      this.shockwave(HERO_X, FEET_Y - 16, col, 24, 360);
-      const aura = this.add.ellipse(HERO_X, FEET_Y - 14, 26, 34, col, 0.25);
-      this.children.moveBelow(aura, this.hero);
-      this.tweens.add({ targets: aura, scale: 1.15, duration: 300, yoyo: true, repeat: 9, onComplete: () => aura.destroy() });
+      return 340;
     }
-    if (total > 0) this.time.delayedCall(id === 'frost' ? 300 : id === 'thunder' ? 260 : 0, () => this.bigNumber(fmt(total), tx, ty - 10, anyCrit ? UI.crit : a.color));
+
+    if (id === 'thunder') {
+      // 하늘이 어두워지고 → 마법진 → 번개 세 줄기 (마지막이 가장 굵다)
+      audio.play('meteor', 0.5);
+      const dark = this.add.rectangle(0, 0, VIEW_W, VIEW_H, 0x0a0a20, 0).setOrigin(0).setDepth(2);
+      this.tweens.add({ targets: dark, fillAlpha: 0.5, duration: 120 });
+      this.magicCircle(tx, 18, col, 20, 600, 0.35);
+      hits.forEach((_, i) =>
+        this.time.delayedCall(100 + i * 120, () => {
+          const last = i === hits.length - 1;
+          this.bolt(tx + (last ? 0 : (i - 1) * 6), ty, col, last ? 3 : 1);
+          audio.play('crit');
+          this.colorFlash(0xffffff, last ? 110 : 50);
+          this.hitStop(last ? 70 : 30);
+          this.burst(tx, ty, col, last ? 26 : 12);
+          this.monsterImpact(3 + i);
+          if (last) {
+            this.shockwave(tx, ty, col, 30, 320);
+            this.shake(200, 0.01);
+            num();
+            this.tweens.add({ targets: dark, fillAlpha: 0, delay: 120, duration: 300, onComplete: () => dark.destroy() });
+          }
+        }),
+      );
+      return 100 + 120 * hits.length;
+    }
+
+    if (id === 'heal') {
+      // 발밑 초록 마법진 + 빛기둥 + 반짝이가 올라간다
+      audio.play('reward', 0.8);
+      this.magicCircle(HERO_X, FEET_Y, col, 18, 900);
+      const pillar = this.add.rectangle(HERO_X, FEET_Y, 16, FEET_Y + 4, col, 0.4).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setDepth(4).setScale(0.3, 0);
+      const core = this.add.rectangle(HERO_X, FEET_Y, 4, FEET_Y + 4, 0xffffff, 0.7).setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setDepth(4).setScale(1, 0);
+      this.tweens.add({ targets: pillar, scaleY: 1, scaleX: 1, duration: 200, ease: 'Quad.out' });
+      this.tweens.add({ targets: core, scaleY: 1, duration: 160, ease: 'Quad.out' });
+      this.tweens.add({ targets: [pillar, core], alpha: 0, delay: 420, duration: 300, onComplete: () => (pillar.destroy(), core.destroy()) });
+      for (let i = 0; i < 14; i++) {
+        const p = this.add
+          .image(HERO_X + Phaser.Math.Between(-12, 12), FEET_Y - Phaser.Math.Between(0, 8), i % 3 ? 'px3' : 'star5')
+          .setTint(i % 2 ? col : 0xffffff)
+          .setBlendMode(Phaser.BlendModes.ADD)
+          .setDepth(4);
+        this.tweens.add({ targets: p, y: p.y - Phaser.Math.Between(26, 44), alpha: 0, duration: 700, delay: i * 35, ease: 'Sine.out', onComplete: () => p.destroy() });
+      }
+      hs.setTintMode(Phaser.TintModes.FILL).setTint(col);
+      this.time.delayedCall(90, () => hs.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.charTint()));
+      this.colorFlash(0x7ce68a, 80);
+      if (heal > 0) this.bigNumber(`+${fmt(heal)}`, HERO_X + 26, FEET_Y - 26, '#7ce68a');
+      return 0;
+    }
+
+    // fury: 포효 → 붉은 충격파 → 광폭이 끝날 때까지 몸에서 불꽃 + 속도선
+    audio.play('boss', 0.5);
+    this.punch(1.05, 0xff8a8a, 80);
+    this.shockwave(HERO_X, FEET_Y - 16, col, 30, 360);
+    this.time.delayedCall(100, () => this.shockwave(HERO_X, FEET_Y - 16, 0xffb36b, 20, 300));
+    this.bigNumber('광폭!', HERO_X + 26, FEET_Y - 28, a.color);
+    hs.setTintMode(Phaser.TintModes.FILL).setTint(col);
+    this.time.delayedCall(110, () => hs.setTintMode(Phaser.TintModes.MULTIPLY).setTint(this.charTint()));
+    const aura = this.time.addEvent({
+      delay: 60,
+      loop: true,
+      callback: () => {
+        if (!this.core.sim.hasted) {
+          aura.remove();
+          return;
+        }
+        this.rise.setParticleTint(Math.random() < 0.6 ? col : 0xffb36b);
+        this.rise.emitParticleAt(HERO_X + Phaser.Math.Between(-7, 7), FEET_Y - Phaser.Math.Between(2, 30), 1);
+        if (Math.random() < 0.35) {
+          const ln = this.add.rectangle(HERO_X - 10, FEET_Y - Phaser.Math.Between(6, 34), Phaser.Math.Between(6, 14), 1, 0xffffff, 0.7).setOrigin(1, 0.5);
+          this.tweens.add({ targets: ln, x: ln.x - 18, alpha: 0, duration: 200, onComplete: () => ln.destroy() });
+        }
+      },
+    });
+    return 0;
   }
 
   /** 직업 스킬 연출 (피해 계산은 BattleSim 이 이미 했다). 준비 동작 → 돌진/발사 → 히트스톱 → 충격 */
@@ -738,6 +1130,8 @@ export class BattleScene extends Phaser.Scene {
       this.skillTitle('회오리 베기', '#ffe08a');
       this.charge(0xffe08a, 140);
       this.tweens.add({ targets: hs, scaleX: 1.12, scaleY: 0.86, x: -5, duration: 140, ease: 'Quad.out' });
+      // 검을 뒤로 젖혀 힘을 모은다 (베기 프레임부터는 시트의 검)
+      this.tweens.add({ targets: this.pose, a: -150, dx: -4, dy: -4, duration: 140, ease: 'Quad.out', onComplete: () => Object.assign(this.pose, { a: 0, dx: 0, dy: 0 }) });
       this.time.delayedCall(140, () => {
         this.attacking = true;
         this.playHero('slash', { duration: 260 });
@@ -775,6 +1169,8 @@ export class BattleScene extends Phaser.Scene {
       hits.forEach((h, i) =>
         this.time.delayedCall(120 + i * 75, () => {
           this.afterimage(0xbfe8ff);
+          this.drawBow(50);
+          this.tipFlash(0xbfe8ff, 2);
           this.tweens.add({ targets: hs, x: -3, duration: 35, yoyo: true });
           if (this.monster) this.shoot('arrow', h.crit || i === hits.length - 1);
           this.time.delayedCall(90, () => {
@@ -800,6 +1196,10 @@ export class BattleScene extends Phaser.Scene {
       this.children.moveBelow(dark, this.hero);
       this.tweens.add({ targets: dark, fillAlpha: 0.45, duration: 200 });
       this.tweens.add({ targets: hs, y: -7, duration: 260, ease: 'Sine.out' });
+      // 지팡이를 하늘로 치켜든다
+      this.tweens.killTweensOf(this.pose);
+      this.tweens.add({ targets: this.pose, a: 30, dx: 2, dy: -6, duration: 220, ease: 'Back.out' });
+      this.time.delayedCall(120, () => this.tipFlash(0xffb36b, 5));
       hs.setTint(0xc9a8ff);
       this.charge(0xc9a8ff, 260);
       this.shockwave(HERO_X + 2, FEET_Y - 18, 0xc9a8ff, 22, 360);
@@ -831,6 +1231,7 @@ export class BattleScene extends Phaser.Scene {
             this.bigNumber(`${fmt(total)}!`, tx, ty - 10, anyCrit ? UI.crit : '#ffb36b');
             this.tweens.add({ targets: dark, fillAlpha: 0, duration: 300, onComplete: () => dark.destroy() });
             this.tweens.add({ targets: hs, y: 0, duration: 200 });
+            this.tweens.add({ targets: this.pose, a: 0, dx: 0, dy: 0, duration: 220 });
             hs.setTint(this.charTint());
           },
         });
@@ -846,8 +1247,9 @@ export class BattleScene extends Phaser.Scene {
 
   private shoot(tex: 'arrow' | 'orb', crit: boolean): void {
     if (!this.monster || !this.monsterSprite) return;
-    const sx = HERO_X + 10;
-    const sy = FEET_Y - 22;
+    const tip = this.weaponTip();
+    const sx = tip.x;
+    const sy = tip.y;
     const tx = this.monster.x - 6;
     const ty = FEET_Y - this.monsterSprite.displayHeight / 2 + (this.monsterSprite.y || 0);
     const p = this.add.image(sx, sy, tex).setScale(crit ? 1.5 : 1);

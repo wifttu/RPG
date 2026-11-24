@@ -2,6 +2,8 @@ import sheetB from '../assets/hero/hero_b.png';
 import sheetLong from '../assets/hero/hero_long.png';
 import sheetPony from '../assets/hero/hero_pony.png';
 import type { Genes } from '../core/genetics';
+import type { WeaponKind } from '../core/gear';
+import { portraitWithWeapon } from './heldWeapons';
 import { HAIR, SKIN, hexToRgb } from './palette';
 
 /**
@@ -152,6 +154,13 @@ export function heroSheetCanvas(genes: Genes): HTMLCanvasElement {
 const portraitCache = new Map<string, string>();
 
 /** UI용 초상화 (대기 첫 프레임, 여백을 잘라 낸 이미지 URL) */
+/** 무기를 든 초상화 (현 가주용) */
+export function heroPortraitArmed(genes: Genes, kind: WeaponKind, rarity: number): string {
+  const w = 40;
+  const h = 56;
+  return portraitWithWeapon(heroSheetCanvas(genes), heroLookKey(genes), kind, rarity, { x: (FRAME - w) / 2, y: FEET_Y - h + 1, w, h });
+}
+
 export function heroPortraitUrl(genes: Genes): string {
   const key = heroLookKey(genes);
   const hit = portraitCache.get(key);
