@@ -1564,3 +1564,36 @@ textarea.code {
 .trial-chip[hidden] {
   display: none;
 }
+
+/* ───────── v0.6: 소환 레벨 ───────── */
+.summon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.summon .slv {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.summon .slv b {
+  color: var(--gold);
+}
+.summon .sbar {
+  flex: 1;
+  height: 8px;
+  background: #0b0812;
+  border: 1px solid var(--outline);
+}
+.summon .sbar b {
+  display: block;
+  height: 100%;
+  background: linear-gradient(#7fd4ff, #3a8ee0);
+}
+.summon .sbox {
+  padding: 3px 8px;
+  animation: ring 0.9s steps(2) infinite;
+}
+.summon .sbox[hidden] {
+  display: none;
+}

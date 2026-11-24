@@ -80,6 +80,8 @@ export interface GameState {
     draws: number;
     pity: number;
     bestTier: number;
+    /** 받은 소환 레벨 보상 (이 레벨까지 받음) */
+    levelClaimed?: number;
   };
 }
 
@@ -156,6 +158,7 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.entitlements ??= { noAds: false, monthlyUntil: 0, starterBought: false };
   s.timeGuard ??= { maxSeen: now, tamperCount: 0 };
   s.gear ??= { inv: {}, equipped: {}, draws: 0, pity: 0, bestTier: -1 };
+  s.gear.levelClaimed ??= 1;
   s.events ??= { lastAt: now, seen: {} };
   // v0.3: 재능(검·활·지팡이) 유전자가 없던 예전 데이터는 검으로
   const fixGenes = (g: Genes | undefined) => {

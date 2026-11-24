@@ -15,7 +15,7 @@ import { claimAttendance, claimMission, claimMonthly, grantReward, rolloverDaily
 import { buyHeirloom } from './heirloom';
 import { EVENT_RULES, pickFieldEvent, resolveEvent, type StoryEvent } from './events';
 import { autoEquip } from './equip';
-import { drawGacha, equip, merge, mergeAll, parseKey, tierLabel, type DrawResult, type ItemKey } from './gear';
+import { claimSummonLevel, drawGacha, equip, merge, mergeAll, parseKey, tierLabel, type DrawResult, type ItemKey } from './gear';
 import { grantProduct } from './products';
 import { Rng } from './rng';
 import { exportSaveCode, loadGame, saveGame } from './save';
@@ -222,6 +222,16 @@ export class Game {
       this.state.daily.gacha = (this.state.daily.gacha ?? 0) + n;
       const best = Math.max(...r.map((x) => parseKey(x.key).tier));
       track('gacha', { n, free, best: tierLabel(best), total: this.state.gear.draws });
+      this.afterGear();
+    }
+    return r;
+  }
+
+  /** 소환 레벨 보상 상자 열기 */
+  claimSummon(): ReturnType<typeof claimSummonLevel> {
+    const r = claimSummonLevel(this.state, this.rng);
+    if (r) {
+      track('summon_level', { lv: r.level });
       this.afterGear();
     }
     return r;

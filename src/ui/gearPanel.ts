@@ -15,7 +15,12 @@ import {
   SKILLS,
   TALENT_ATK_BONUS,
   canMerge,
+  claimableSummonLevel,
   heroClass,
+  MAX_SUMMON_LEVEL,
+  SUMMON_LEVELS,
+  summonLevel,
+  summonProgress,
   itemEffect,
   itemName,
   ownedKeys,
@@ -114,6 +119,13 @@ export function gearHtml(core: Game, filter: Slot): string {
         <button class="btn blue" data-gacha="1">${iconImg('gem')} ${GACHA_COST.one} · 1회</button>
         <button class="btn gold" data-gacha="10">${iconImg('gem')} ${GACHA_COST.ten} · 10회</button>
       </div>
+      <div class="summon">
+        <span class="slv">소환 Lv.<b data-b="sumLv"></b></span>
+        <i class="sbar"><b data-b="sumFill"></b></i>
+        <span class="small muted" data-b="sumTxt"></span>
+        <button class="btn gold sbox" data-act-gear="summon" hidden>🎁 보상</button>
+      </div>
+      <p class="small muted" style="margin:0 0 4px" data-b="sumNext"></p>
       <p class="small muted" style="margin:6px 0 0">뽑은 장비는 ★1. 같은 장비 ${MERGE_COUNT}개를 합성하면 한 단계 올라가요 (★4 다음은 위 등급 ★1). <button class="linkish" data-act-gear="odds">확률 보기</button></p>
     </div>
 
@@ -137,6 +149,26 @@ export function refreshGear(root: HTMLElement, core: Game): void {
   if (p) p.textContent = fmt(combatPower(core.state));
   const pl = root.querySelector('[data-b="pityLeft"]');
   if (pl) pl.textContent = String(PITY - core.state.gear.pity);
+  // 소환 레벨
+  const g = core.state.gear;
+  const lv = summonLevel(g.draws);
+  const prog = summonProgress(g.draws);
+  const setT = (b: string, t: string) => {
+    const el = root.querySelector(`[data-b="${b}"]`);
+    if (el && el.textContent !== t) el.textContent = t;
+  };
+  setT('sumLv', String(lv));
+  setT('sumTxt', prog ? `${prog.cur}/${prog.need}` : 'MAX');
+  const fill = root.querySelector<HTMLElement>('[data-b="sumFill"]');
+  if (fill) fill.style.width = `${prog ? (prog.cur / prog.need) * 100 : 100}%`;
+  const claim = claimableSummonLevel(core.state);
+  const box = root.querySelector<HTMLButtonElement>('[data-act-gear="summon"]');
+  if (box) box.hidden = !claim;
+  const nextLv = claim || (lv < MAX_SUMMON_LEVEL ? lv + 1 : 0);
+  if (nextLv) {
+    const r = SUMMON_LEVELS[nextLv - 1];
+    setT('sumNext', `${claim ? `Lv.${claim} 보상 받을 수 있어요` : `Lv.${nextLv} 보상`}: ${RARITIES[r.rarity].name} 장비 ${r.count}개 + 보석 ${r.gems}`);
+  } else setT('sumNext', '소환 레벨 최고! 모든 보상을 받았어요');
   const one = root.querySelector<HTMLButtonElement>('[data-gacha="1"]');
   if (one) one.disabled = core.state.gems < GACHA_COST.one;
   const ten = root.querySelector<HTMLButtonElement>('[data-gacha="10"]');
@@ -182,6 +214,11 @@ export function bindGear(root: HTMLElement, ctx: GearCtx, setFilter: (s: Slot) =
     b.addEventListener('click', () => {
       const act = b.dataset.actGear;
       if (act === 'odds') return ctx.openOdds();
+      if (act === 'summon') {
+        const r = core.claimSummon();
+        if (r) showResults(ctx, r.keys, `소환 Lv.${r.level} 보상! 보석 +${r.gems}`);
+        return;
+      }
       if (act === 'auto') {
         const n = core.autoEquip();
         audio.play(n ? 'upgrade' : 'click', 0.6);
@@ -249,12 +286,12 @@ function openItem(ctx: GearCtx, key: ItemKey): void {
   });
 }
 
-function showResults(ctx: GearCtx, keys: ItemKey[]): void {
+function showResults(ctx: GearCtx, keys: ItemKey[], title?: string): void {
   const { core } = ctx;
   const best = Math.max(...keys.map((k) => rarityOf(parseKey(k).tier)));
   audio.play(best >= 3 ? 'fanfare' : 'reward');
   const { root, close } = ctx.openModal(`
-    <h2>${keys.length === 1 ? '장비 획득!' : `장비 ${keys.length}개 획득!`}</h2>
+    <h2>${title ?? (keys.length === 1 ? '장비 획득!' : `장비 ${keys.length}개 획득!`)}</h2>
     <p class="lead small">${best >= 3 ? `<b style="color:${RARITIES[best].color}">${RARITIES[best].name} 등급</b>이 나왔어요!` : '같은 장비 4개를 모으면 합성할 수 있어요'}</p>
     <div class="results">
       ${keys

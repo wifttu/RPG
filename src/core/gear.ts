@@ -279,5 +279,74 @@ export function ownedKeys(state: GameState, slot?: Slot): ItemKey[] {
 }
 
 export function emptyGear(): GameState['gear'] {
-  return { inv: {}, equipped: {}, draws: 0, pity: 0, bestTier: -1 };
+  return { inv: {}, equipped: {}, draws: 0, pity: 0, bestTier: -1, levelClaimed: 1 };
+}
+
+// ───────────────────────── 소환 레벨 ─────────────────────────
+/**
+ * 뽑은 횟수가 쌓이면 소환 레벨이 오르고, 레벨마다 보상 상자 (정해진 등급 장비 + 보석).
+ * 천장(50회)과 별개로, 오래 뽑을수록 확실한 보상이 있는 장기 목표.
+ * 상자의 장비 부위는 뽑기와 같은 부위 확률(GACHA_SLOT)을 따른다.
+ */
+export interface SummonLevel {
+  /** 이 레벨이 되는 누적 뽑기 수 */
+  draws: number;
+  /** 보상: 희귀도(0 일반 ~ 4 전설) 장비 n개 + 보석 */
+  rarity: number;
+  count: number;
+  gems: number;
+}
+export const SUMMON_LEVELS: SummonLevel[] = [
+  { draws: 0, rarity: 0, count: 0, gems: 0 }, // Lv.1
+  { draws: 30, rarity: 1, count: 3, gems: 30 },
+  { draws: 80, rarity: 2, count: 2, gems: 50 },
+  { draws: 160, rarity: 2, count: 4, gems: 80 },
+  { draws: 300, rarity: 3, count: 1, gems: 100 },
+  { draws: 500, rarity: 3, count: 2, gems: 150 },
+  { draws: 800, rarity: 3, count: 3, gems: 200 },
+  { draws: 1200, rarity: 4, count: 1, gems: 300 },
+  { draws: 1800, rarity: 4, count: 2, gems: 400 },
+  { draws: 2600, rarity: 4, count: 3, gems: 500 }, // Lv.10
+];
+export const MAX_SUMMON_LEVEL = SUMMON_LEVELS.length;
+
+/** 지금 소환 레벨 (1부터) */
+export function summonLevel(draws: number): number {
+  let lv = 1;
+  for (let i = 1; i < SUMMON_LEVELS.length; i++) if (draws >= SUMMON_LEVELS[i].draws) lv = i + 1;
+  return lv;
+}
+
+/** 다음 레벨까지 진행도 { cur, need } (최고 레벨이면 null) */
+export function summonProgress(draws: number): { cur: number; need: number; next: number } | null {
+  const lv = summonLevel(draws);
+  if (lv >= MAX_SUMMON_LEVEL) return null;
+  const from = SUMMON_LEVELS[lv - 1].draws;
+  const to = SUMMON_LEVELS[lv].draws;
+  return { cur: draws - from, need: to - from, next: lv + 1 };
+}
+
+/** 받을 수 있는 다음 보상 레벨 (없으면 0) */
+export function claimableSummonLevel(state: GameState): number {
+  const got = state.gear.levelClaimed ?? 1;
+  return summonLevel(state.gear.draws) > got ? got + 1 : 0;
+}
+
+/** 소환 레벨 보상 받기 (한 레벨씩). 받은 장비 목록, 없으면 null */
+export function claimSummonLevel(state: GameState, rng: Rng): { level: number; keys: ItemKey[]; gems: number } | null {
+  const lv = claimableSummonLevel(state);
+  if (!lv) return null;
+  const r = SUMMON_LEVELS[lv - 1];
+  const keys: ItemKey[] = [];
+  for (let i = 0; i < r.count; i++) {
+    const slot = rng.weighted(GACHA_SLOT) as Slot;
+    const kind: ItemKind = slot === 'weapon' ? rng.pick(WEAPON_KINDS) : slot;
+    const key = itemKey(kind, r.rarity * STARS);
+    state.gear.inv[key] = (state.gear.inv[key] ?? 0) + 1;
+    state.gear.bestTier = Math.max(state.gear.bestTier, r.rarity * STARS);
+    keys.push(key);
+  }
+  state.gems += r.gems;
+  state.gear.levelClaimed = lv;
+  return { level: lv, keys, gems: r.gems };
 }

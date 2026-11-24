@@ -24,7 +24,7 @@ import type { HeirloomKind } from '../core/state';
 import { questBadge, questHtml, refreshQuest } from './questPanel';
 import { bindGear, gearHtml, refreshGear } from './gearPanel';
 import { itemIconUrl } from '../art/itemIcons';
-import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, SKILLS, heroClass, type Slot } from '../core/gear';
+import { GACHA_RARITY, GACHA_SLOT, PITY, RARITIES, SKILLS, SUMMON_LEVELS, heroClass, type Slot } from '../core/gear';
 import { TALENT_LABEL } from '../core/genetics';
 import { settings, updateSettings } from '../core/settings';
 import { LIFE_EVENT_ODDS } from '../core/events';
@@ -1192,6 +1192,7 @@ export class UI {
         <tr><td>무기 (검·활·지팡이 각 1/3)</td><td>${fmtPct(GACHA_SLOT.weapon, 1)} (각 ${fmtPct(GACHA_SLOT.weapon / 3, 2)})</td></tr>
         <tr><td>투구 / 갑옷 / 목걸이 / 반지</td><td>각 ${fmtPct(GACHA_SLOT.helmet, 1)}</td></tr>
       </table>
+      <p class="small muted">소환 레벨: 누적 뽑기 수에 따라 레벨이 오르고, 레벨마다 정해진 등급 장비와 보석을 받아요 (확률 없음, 부위만 위 부위 확률). ${SUMMON_LEVELS.slice(1).map((l, i) => `Lv.${i + 2}(${l.draws}회) ${RARITIES[l.rarity].name}×${l.count}+보석 ${l.gems}`).join(' · ')}</p>
       <p class="small muted">뽑기로 나오는 장비는 모두 ★1. 영웅 이상이 ${PITY}번 연속으로 안 나오면 ${PITY}번째는 영웅 확정. 희귀도와 부위는 서로 독립이에요. 예) 전설 활 = ${fmtPct(GACHA_RARITY.legend, 1)} × ${fmtPct(GACHA_SLOT.weapon / 3, 2)} = ${((GACHA_RARITY.legend * GACHA_SLOT.weapon) / 3 * 100).toFixed(3)}%</p>
       <b>돌연변이 특성 확률</b>
       <table class="odds">

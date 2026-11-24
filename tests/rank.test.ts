@@ -77,3 +77,26 @@ describe('승급 시련', () => {
     expect(n.hero.rank).toBe(0);
   });
 });
+
+import { claimSummonLevel, claimableSummonLevel, drawGacha, summonLevel, SUMMON_LEVELS } from '../src/core/gear';
+
+describe('소환 레벨', () => {
+  it('누적 뽑기로 레벨이 오르고 보상은 한 레벨씩', () => {
+    expect(summonLevel(0)).toBe(1);
+    expect(summonLevel(SUMMON_LEVELS[1].draws)).toBe(2);
+    const s = createNewGame(9, 0);
+    s.gems = 100000;
+    for (let i = 0; i < 9; i++) drawGacha(s, new Rng(i), 10);
+    expect(summonLevel(s.gear.draws)).toBe(3);
+    expect(claimableSummonLevel(s)).toBe(2);
+    const gems = s.gems;
+    const r = claimSummonLevel(s, new Rng(1))!;
+    expect(r.level).toBe(2);
+    expect(r.keys.length).toBe(SUMMON_LEVELS[1].count);
+    expect(s.gems).toBe(gems + SUMMON_LEVELS[1].gems);
+    expect(claimableSummonLevel(s)).toBe(3);
+    claimSummonLevel(s, new Rng(2));
+    expect(claimableSummonLevel(s)).toBe(0);
+    expect(claimSummonLevel(s, new Rng(3))).toBeNull();
+  });
+});
