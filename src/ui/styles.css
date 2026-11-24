@@ -1613,3 +1613,96 @@ textarea.code {
 #tabs [data-tab='shop'] {
   position: relative;
 }
+
+/* ───────── v0.6: 스킬 칸 · 가문 비기 ───────── */
+.aslots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.aslot {
+  font: inherit;
+  color: var(--text);
+  min-height: 52px;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  background: #0b0812;
+  border: 2px solid var(--ac, var(--line));
+  box-shadow: inset 0 0 8px color-mix(in srgb, var(--ac, transparent) 35%, transparent);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.15;
+}
+.aslot small {
+  font-size: 9px;
+  color: var(--dim);
+}
+.aslot.fixed {
+  --ac: var(--gold);
+  cursor: default;
+}
+.aslot.empty {
+  border-style: dashed;
+  color: var(--dim);
+  font-size: 16px;
+}
+.aslot.locked {
+  color: var(--dim);
+  border-style: dashed;
+}
+.aslot:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.alist {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+.arow {
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.alist.pick .arow {
+  cursor: pointer;
+}
+.arow .lv {
+  color: var(--gold);
+}
+.art-pips {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+}
+.art-pips span {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  font-size: 8px;
+  line-height: 14px;
+  text-align: center;
+  color: #fff;
+  background: #0b0812cc;
+  border: 1px solid var(--ac);
+  overflow: hidden;
+  font-family: 'Galmuri9', 'Galmuri11', sans-serif;
+}
+.art-pips i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--ac) 45%, transparent);
+  z-index: -0;
+}

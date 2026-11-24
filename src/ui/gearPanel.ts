@@ -33,6 +33,8 @@ import {
   type WeaponKind,
 } from '../core/gear';
 import { fmt, josa } from './format';
+import { houseBest } from '../core/economy';
+import { ART_COST, ART_IDS, ART_MAX_LEVEL, ARTS, artPower, cardsToLevel, SLOT_UNLOCK, slotOpen, type ArtId } from '../core/skills';
 
 /** 장비 탭: 직업·전투력, 장착 칸, 장비 뽑기, 무기고(합성·장착) */
 
@@ -112,6 +114,8 @@ export function gearHtml(core: Game, filter: Slot): string {
       </div>
     </div>
 
+    ${artsHtml(core)}
+
     <div class="card gacha">
       <h3>${iconImg('gem')} 장비 뽑기 <small>영웅 등급 확정까지 <b data-b="pityLeft"></b>회</small></h3>
       <div class="gacha-btns">
@@ -144,7 +148,127 @@ export function gearHtml(core: Game, filter: Slot): string {
     </div>`;
 }
 
+// ───────────────────────── 가문 비기 ─────────────────────────
+function artsHtml(core: Game): string {
+  const s = core.state;
+  const best = houseBest(s);
+  const cls = heroClass(s);
+  const owned = ART_IDS.filter((id) => s.skills.owned[id]);
+  const slot = (i: number) => {
+    if (!slotOpen(s, i, best)) {
+      const u = SLOT_UNLOCK[i];
+      const first = [0, 1, 2].find((k) => !slotOpen(s, k, best)) === i;
+      return `<button class="aslot locked" data-art-slot="${i}" ${first ? '' : 'disabled'}>🔒<small>스테이지 ${u.stage}<br />또는 💎${u.gems}</small></button>`;
+    }
+    const id = s.skills.slots[i];
+    return id
+      ? `<button class="aslot" data-art-slot="${i}" style="--ac:${ARTS[id].color}"><b>${ARTS[id].name}</b><small>Lv.${s.skills.owned[id]?.lv ?? 1}</small></button>`
+      : `<button class="aslot empty" data-art-slot="${i}">＋<small>빈 칸</small></button>`;
+  };
+  return `
+    <div class="card arts">
+      <h3>${iconImg('atk')} 스킬 칸 <small>가문 비기는 대대로 이어져요</small></h3>
+      <div class="aslots">
+        <div class="aslot fixed"><b>${SKILLS[cls.kind].name}</b><small>직업 스킬</small></div>
+        ${[0, 1, 2].map(slot).join('')}
+      </div>
+      ${
+        owned.length
+          ? `<div class="alist">${owned
+              .map((id) => {
+                const o = s.skills.owned[id]!;
+                const a = ARTS[id];
+                const need = cardsToLevel(o.lv);
+                return `<div class="arow"><b style="color:${a.color}">${a.name}</b> <span class="lv">Lv.${o.lv}</span>
+                  <span class="small muted">${o.lv >= ART_MAX_LEVEL ? 'MAX' : `비기서 ${o.cards}/${need}`}</span>
+                  <div class="small muted">${a.desc}${o.lv > 1 ? ` · 위력 x${artPower(o.lv).toFixed(1)}` : ''}</div></div>`;
+              })
+              .join('')}</div>`
+          : '<p class="small muted" style="margin:6px 0">아직 배운 비기가 없어요. 비기서를 펼쳐 보세요!</p>'
+      }
+      <div class="gacha-btns" style="grid-template-columns:1fr 1fr">
+        <button class="btn blue" data-art-draw="1">${iconImg('gem')} ${ART_COST.one} · 비기서 1권</button>
+        <button class="btn gold" data-art-draw="10">${iconImg('gem')} ${ART_COST.ten} · 10권</button>
+      </div>
+      <p class="small muted" style="margin:6px 0 0">같은 비기서를 또 얻으면 레벨이 올라요 (위력 +20%/레벨). <button class="linkish" data-act-gear="odds">확률 보기</button></p>
+    </div>`;
+}
+
+function bindArts(root: HTMLElement, ctx: GearCtx): void {
+  const { core } = ctx;
+  root.querySelectorAll<HTMLButtonElement>('[data-art-draw]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const n = b.dataset.artDraw === '10' ? 10 : 1;
+      const r = core.drawArts(n);
+      if (!r) return ctx.toast('보석이 부족해요');
+      audio.play('reward');
+      const { root: m, close } = ctx.openModal(`
+        <h2>비기서 ${r.length}권</h2>
+        <div class="results">${r
+          .map((id, i) => `<div class="res" style="--rc:${ARTS[id].color};animation-delay:${i * 0.06}s"><span>${ARTS[id].name}</span><b>Lv.${core.state.skills.owned[id]!.lv}</b></div>`)
+          .join('')}</div>
+        <div class="actions"><button class="btn ghost" data-a="x">확인</button></div>`);
+      m.querySelector('[data-a="x"]')!.addEventListener('click', () => {
+        close();
+        ctx.rerender();
+      });
+    }),
+  );
+  root.querySelectorAll<HTMLButtonElement>('[data-art-slot]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const i = Number(b.dataset.artSlot);
+      const s = core.state;
+      if (!slotOpen(s, i, houseBest(s))) {
+        const u = SLOT_UNLOCK[i];
+        const { root: m, close } = ctx.openModal(`
+          <h2>${i + 2}번 스킬 칸 열기</h2>
+          <p class="lead">가문 최고 스테이지 ${u.stage}에 닿으면 무료로 열려요. 지금 바로 열 수도 있어요.</p>
+          <div class="actions"><button class="btn ghost" data-a="x">닫기</button>
+          <button class="btn gold" data-a="buy" ${s.gems < u.gems ? 'disabled' : ''}>${iconImg('gem')} ${u.gems} · 지금 열기</button></div>`);
+        m.querySelector('[data-a="x"]')!.addEventListener('click', close);
+        m.querySelector('[data-a="buy"]')!.addEventListener('click', () => {
+          close();
+          if (core.buyArtSlot()) {
+            audio.play('reward');
+            ctx.toast(`${i + 2}번 스킬 칸이 열렸어요`);
+          }
+          ctx.rerender();
+        });
+        return;
+      }
+      const owned = ART_IDS.filter((id) => s.skills.owned[id]);
+      if (!owned.length) return ctx.toast('먼저 비기서를 펼쳐 비기를 배우세요');
+      const { root: m, close } = ctx.openModal(`
+        <h2>${i + 2}번 칸에 끼울 비기</h2>
+        <div class="alist pick">${owned
+          .map(
+            (id) => `<button class="arow" data-pick="${id}"><b style="color:${ARTS[id].color}">${ARTS[id].name}</b> <span class="lv">Lv.${s.skills.owned[id]!.lv}</span>
+            ${s.skills.slots.includes(id) ? `<span class="small muted">(${s.skills.slots.indexOf(id) + 2}번 칸)</span>` : ''}<div class="small muted">${ARTS[id].desc}</div></button>`,
+          )
+          .join('')}</div>
+        <div class="actions"><button class="btn ghost" data-a="clear">비우기</button><button class="btn ghost" data-a="x">닫기</button></div>`);
+      m.querySelector('[data-a="x"]')!.addEventListener('click', close);
+      m.querySelector('[data-a="clear"]')!.addEventListener('click', () => {
+        core.setArtSlot(i, null);
+        close();
+        ctx.rerender();
+      });
+      m.querySelectorAll<HTMLButtonElement>('[data-pick]').forEach((p) =>
+        p.addEventListener('click', () => {
+          core.setArtSlot(i, p.dataset.pick as ArtId);
+          audio.play('upgrade', 0.6);
+          close();
+          ctx.rerender();
+        }),
+      );
+    }),
+  );
+}
+
 export function refreshGear(root: HTMLElement, core: Game): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-art-draw]').forEach((b) => {
+    b.disabled = core.state.gems < (b.dataset.artDraw === '10' ? ART_COST.ten : ART_COST.one);
+  });
   const p = root.querySelector('[data-b="power"]');
   if (p) p.textContent = fmt(combatPower(core.state));
   const pl = root.querySelector('[data-b="pityLeft"]');
@@ -177,6 +301,7 @@ export function refreshGear(root: HTMLElement, core: Game): void {
 
 export function bindGear(root: HTMLElement, ctx: GearCtx, setFilter: (s: Slot) => void): void {
   const { core } = ctx;
+  bindArts(root, ctx);
   root.querySelectorAll<HTMLButtonElement>('[data-slot]').forEach((b) =>
     b.addEventListener('click', () => {
       audio.play('click');

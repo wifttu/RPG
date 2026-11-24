@@ -2,6 +2,7 @@ import { BALANCE, type UpgradeKind } from '../config/balance';
 import { randomGenes, type Genes } from './genetics';
 import { generateName, HOUSE_NAMES } from './names';
 import { Rng } from './rng';
+import { emptySkills, type SkillState } from './skills';
 
 export interface Hero {
   id: string;
@@ -64,6 +65,8 @@ export interface GameState {
   bonusKills: number;
   /** 가문이 오른 가장 높은 칭호 (첫 달성 보상용) */
   bestRank: number;
+  /** 가문 비기 (추가 스킬 칸) */
+  skills: SkillState;
   /** 기간 한정 패키지: 열린 시각+48시간, 구매 여부 */
   offers: Record<string, { until: number; bought: boolean }>;
   progress: Progress;
@@ -144,6 +147,7 @@ export function normalizeState(s: GameState, now = Date.now()): GameState {
   s.bonusKills ??= 0;
   s.bestRank ??= 0;
   s.offers ??= {};
+  s.skills ??= emptySkills();
   s.hero.rank ??= 0;
   const base: Progress = {
     bossKills: 0,

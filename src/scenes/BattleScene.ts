@@ -25,6 +25,7 @@ import { fmt } from '../ui/format';
 import { audio } from '../audio/audio';
 import { heroClass, type WeaponKind } from '../core/gear';
 import { rankName } from '../core/rank';
+import { ARTS, type ArtId } from '../core/skills';
 import { settings } from '../core/settings';
 
 export const VIEW_W = 160;
@@ -408,6 +409,9 @@ export class BattleScene extends Phaser.Scene {
         this.banner(e.reason === 'timeout' ? '시간 초과' : '도전 실패', '#ffb36b');
         this.clearMonster();
         break;
+      case 'art':
+        this.castArt(e.id, e.hits, e.heal);
+        break;
       case 'trialStart':
         this.banner(`승급 시련 · ${rankName(e.rank)}`, '#c9a8ff');
         audio.play('boss');
@@ -630,6 +634,90 @@ export class BattleScene extends Phaser.Scene {
     const sx = spr.scaleX;
     const sy = spr.scaleY;
     this.tweens.add({ targets: spr, scaleX: sx * 1.18, scaleY: sy * 0.82, duration: 60, yoyo: true });
+  }
+
+  /** 가문 비기 연출 (바로 맞는 짧은 기술) */
+  private castArt(id: ArtId, hits: { damage: number; crit: boolean }[], heal: number): void {
+    const a = ARTS[id];
+    const col = Phaser.Display.Color.HexStringToColor(a.color).color;
+    const tx = this.monster ? this.monster.x : MON_X;
+    const ty = FEET_Y - (this.monsterSprite ? this.monsterSprite.displayHeight / 2 : 14);
+    this.floatText(a.name, HERO_X, FEET_Y - 52, a.color, false);
+    const total = hits.reduce((x, h) => x + h.damage, 0);
+    const anyCrit = hits.some((h) => h.crit);
+    const impact = (push: number) => {
+      this.monsterImpact(push);
+      this.sparks.setParticleTint(col);
+      this.sparks.explode(14, tx - 2, ty);
+    };
+    if (id === 'flame') {
+      audio.play('crit');
+      this.tweens.add({ targets: this.heroSprite, x: 6, duration: 70, yoyo: true });
+      this.slashArc(tx - 4, ty, 14, col, 0);
+      this.hitStop(50);
+      impact(8);
+      this.shockwave(tx - 4, ty, col, 20, 240);
+    } else if (id === 'frost') {
+      audio.play('volley');
+      hits.forEach((_, i) => {
+        const shard = this.add.rectangle(tx + 30 + i * 8, -10, 3, 12, col).setAngle(-35);
+        this.tweens.add({
+          targets: shard,
+          x: tx - 2 + i * 4,
+          y: ty,
+          duration: 220,
+          delay: i * 110,
+          ease: 'Quad.in',
+          onComplete: () => {
+            shard.destroy();
+            impact(4);
+            audio.play('hit');
+          },
+        });
+      });
+    } else if (id === 'quake') {
+      audio.play('boss', 0.7);
+      this.shake(220, 0.012);
+      this.shockwave(tx, FEET_Y, col, 36, 380);
+      this.time.delayedCall(160, () => this.shockwave(tx, FEET_Y, col, 26, 300));
+      this.dust.emitParticleAt(tx, FEET_Y, 10);
+      impact(6);
+    } else if (id === 'thunder') {
+      audio.play('meteor', 0.6);
+      hits.forEach((_, i) =>
+        this.time.delayedCall(i * 120, () => {
+          const g = this.add.graphics();
+          g.lineStyle(2, col, 1);
+          let x = tx + Phaser.Math.Between(-6, 6);
+          g.beginPath();
+          g.moveTo(x, 0);
+          for (let y = 12; y <= ty; y += 12) {
+            x += Phaser.Math.Between(-5, 5);
+            g.lineTo(x, Math.min(y, ty));
+          }
+          g.strokePath();
+          this.cameras.main.flash(50, 255, 250, 200);
+          impact(3);
+          this.tweens.add({ targets: g, alpha: 0, duration: 160, onComplete: () => g.destroy() });
+        }),
+      );
+    } else if (id === 'heal') {
+      audio.play('reward', 0.7);
+      for (let i = 0; i < 10; i++) {
+        const p = this.add.image(HERO_X + Phaser.Math.Between(-10, 10), FEET_Y - Phaser.Math.Between(0, 20), 'px').setTint(col);
+        this.tweens.add({ targets: p, y: p.y - 24, alpha: 0, duration: 600, delay: i * 30, onComplete: () => p.destroy() });
+      }
+      this.heroSprite.setTint(col);
+      this.time.delayedCall(160, () => this.heroSprite.setTint(this.charTint()));
+      if (heal > 0) this.floatText(`+${fmt(heal)}`, HERO_X, FEET_Y - 36, '#7ce68a', false);
+    } else if (id === 'fury') {
+      audio.play('whirl', 0.7);
+      this.shockwave(HERO_X, FEET_Y - 16, col, 24, 360);
+      const aura = this.add.ellipse(HERO_X, FEET_Y - 14, 26, 34, col, 0.25);
+      this.children.moveBelow(aura, this.hero);
+      this.tweens.add({ targets: aura, scale: 1.15, duration: 300, yoyo: true, repeat: 9, onComplete: () => aura.destroy() });
+    }
+    if (total > 0) this.time.delayedCall(id === 'frost' ? 300 : id === 'thunder' ? 260 : 0, () => this.bigNumber(fmt(total), tx, ty - 10, anyCrit ? UI.crit : a.color));
   }
 
   /** 직업 스킬 연출 (피해 계산은 BattleSim 이 이미 했다). 준비 동작 → 돌진/발사 → 히트스톱 → 충격 */

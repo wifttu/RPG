@@ -14,6 +14,7 @@ import {
 import { heroClass, SKILLS, type WeaponKind } from './gear';
 import { legacyForBoss } from './heirloom';
 import { canTrial, MAX_RANK, RANKS, trialFoe } from './rank';
+import { ARTS, artPower, slotOpen, type ArtId } from './skills';
 import type { Rng } from './rng';
 import type { GameState } from './state';
 import { computeStats, type HeroStats } from './stats';
@@ -42,6 +43,8 @@ export type BattleEvent =
   | { type: 'respawn' }
   /** 직업 스킬 */
   | { type: 'skill'; kind: WeaponKind; hits: { damage: number; crit: boolean }[]; killed: boolean }
+  /** 가문 비기 (추가 스킬 칸) */
+  | { type: 'art'; id: ArtId; hits: { damage: number; crit: boolean }[]; killed: boolean; heal: number }
   /** 보너스 게이지가 차서 상자를 열었다 */
   | { type: 'bonusChest'; gold: number }
   /** 보스 도전 시작 */
@@ -106,6 +109,10 @@ export class BattleSim {
   trialRetryPower = 0;
   /** 스킬 대기 시간 (처음에는 3초 뒤 바로 보여 준다) */
   skillCd = 3;
+  /** 비기 칸별 대기 시간 */
+  artCd = [2, 4, 6];
+  /** 광폭 끝나는 시각 */
+  private hasteUntil = 0;
 
   constructor(
     private state: GameState,
@@ -123,6 +130,17 @@ export class BattleSim {
   get skillReady(): number {
     const cd = SKILLS[heroClass(this.state).kind].cooldown;
     return Math.max(0, Math.min(1, 1 - this.skillCd / cd));
+  }
+
+  /** 비기 칸 준비 정도 0~1 */
+  artReady(i: number): number {
+    const id = this.state.skills.slots[i];
+    if (!id) return 0;
+    return Math.max(0, Math.min(1, 1 - this.artCd[i] / ARTS[id].cooldown));
+  }
+
+  get hasted(): boolean {
+    return this.time < this.hasteUntil;
   }
 
   get injured(): boolean {
@@ -291,6 +309,44 @@ export class BattleSim {
       }
     }
 
+    // 가문 비기: 칸마다 쿨타임이 차면 자동 사용
+    const best = houseBest(this.state);
+    for (let i = 0; i < 3; i++) {
+      const id = this.state.skills.slots[i];
+      if (!id || !slotOpen(this.state, i, best)) continue;
+      this.artCd[i] -= dt;
+      if (this.artCd[i] > 0) continue;
+      const a = ARTS[id];
+      const pow = artPower(this.state.skills.owned[id]?.lv ?? 1);
+      if (a.heal && this.heroHp > this.stats.maxHp * 0.85) {
+        this.artCd[i] = 0; // 다칠 때까지 아껴 둔다
+        continue;
+      }
+      this.artCd[i] = a.cooldown;
+      const hits: { damage: number; crit: boolean }[] = [];
+      let heal = 0;
+      if (a.hits && a.perHit) {
+        const injury = this.injured ? BALANCE.hero.injuryAtkMul : 1;
+        for (let h = 0; h < a.hits; h++) {
+          const crit = this.rng.chance(this.stats.crit);
+          const damage = this.stats.atk * a.perHit * pow * injury * (crit ? this.stats.critMul : 1);
+          hits.push({ damage, crit });
+          m.hp -= damage;
+        }
+      }
+      if (a.heal) {
+        heal = Math.min(this.stats.maxHp - this.heroHp, this.stats.maxHp * a.heal * pow);
+        this.heroHp += heal;
+      }
+      if (a.haste && a.hasteSec) this.hasteUntil = this.time + a.hasteSec * pow;
+      const killed = m.hp <= 0;
+      ev.push({ type: 'art', id, hits, killed, heal });
+      if (killed) {
+        this.onKill(ev, m);
+        return ev;
+      }
+    }
+
     if (m.boss) {
       this.bossTimeLeft -= dt;
       if (this.bossTimeLeft <= 0) {
@@ -301,7 +357,7 @@ export class BattleSim {
 
     this.heroCd -= dt;
     while (this.heroCd <= 0 && this.monster) {
-      this.heroCd += 1 / this.stats.atkPerSec;
+      this.heroCd += 1 / (this.stats.atkPerSec * (this.hasted ? ARTS.fury.haste! : 1));
       const crit = this.rng.chance(this.stats.crit);
       const injury = this.injured ? BALANCE.hero.injuryAtkMul : 1;
       const damage = this.stats.atk * injury * (crit ? this.stats.critMul : 1);

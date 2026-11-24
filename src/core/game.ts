@@ -1,6 +1,7 @@
 import { BALANCE, type UpgradeKind } from '../config/balance';
 import { BattleSim, type BattleEvent } from './battle';
-import { buyUpgrade, computeOffline, type OfflineResult } from './economy';
+import { buyUpgrade, computeOffline, houseBest, type OfflineResult } from './economy';
+import { autoSlot, buySlot, drawArts, setSlot, type ArtId } from './skills';
 import {
   makeChildCandidates,
   makeSpouseCandidates,
@@ -238,6 +239,34 @@ export class Game {
       this.afterGear();
     }
     return r;
+  }
+
+  /** 비기서 뽑기 (새로 배운 비기는 빈 칸에 자동으로) */
+  drawArts(n: 1 | 10): ArtId[] | null {
+    const r = drawArts(this.state, this.rng, n);
+    if (r) {
+      autoSlot(this.state, houseBest(this.state));
+      track('art_draw', { n, total: this.state.skills.draws });
+      this.afterGear();
+    }
+    return r;
+  }
+
+  setArtSlot(i: number, id: ArtId | null): boolean {
+    const ok = setSlot(this.state, i, id, houseBest(this.state));
+    if (ok) this.afterGear();
+    return ok;
+  }
+
+  /** 보석으로 비기 칸 열기 */
+  buyArtSlot(): boolean {
+    const ok = buySlot(this.state, houseBest(this.state));
+    if (ok) {
+      autoSlot(this.state, houseBest(this.state));
+      track('art_slot_buy', { n: this.state.skills.bought });
+      this.afterGear();
+    }
+    return ok;
   }
 
   /** 소환 레벨 보상 상자 열기 */

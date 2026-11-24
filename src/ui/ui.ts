@@ -2,6 +2,7 @@ import { heroPortraitUrl } from '../art/heroSheet';
 import { iconImg } from '../art/icons';
 import { HAIR } from '../art/palette';
 import { BALANCE, UPGRADE_KINDS, type UpgradeKind } from '../config/balance';
+import { ART_IDS, ART_ODDS, ARTS } from '../core/skills';
 import { nextRank, rankMultiplier, rankName, RANKS, trialFoe } from '../core/rank';
 import { houseBest, isBossStage, isMarchStage, upgradeCost, estimateGoldPerSec } from '../core/economy';
 import type { Game } from '../core/game';
@@ -210,6 +211,7 @@ export class UI {
         <button class="auto-chip" data-auto></button>
         <button class="trial-chip" data-trial hidden></button>
         <div class="skill-chip" data-skill><span data-b="skillName"></span><i><b data-b="skillBar"></b></i></div>
+        <div class="art-pips" data-b="artPips"></div>
         <div class="status-chips">
           <div class="injury-chip" data-b="injury" hidden>부상 · 공격력 -25%</div>
         </div>
@@ -303,6 +305,19 @@ export class UI {
     const ready = this.core.sim.skillReady;
     $('[data-b="skillBar"]').style.width = `${ready * 100}%`;
     $('[data-skill]').classList.toggle('ready', ready >= 0.98);
+    // 비기 칸 쿨타임
+    const pips = $('[data-b="artPips"]');
+    const ids = state.skills.slots;
+    const key = ids.join(',');
+    if (pips.dataset.k !== key) {
+      pips.dataset.k = key;
+      pips.innerHTML = ids
+        .map((id, i) => (id ? `<span style="--ac:${ARTS[id].color}" title="${ARTS[id].name}"><i data-art-cd="${i}"></i>${ARTS[id].name.slice(0, 2)}</span>` : ''))
+        .join('');
+    }
+    pips.querySelectorAll<HTMLElement>('[data-art-cd]').forEach((n) => {
+      n.style.height = `${this.core.sim.artReady(Number(n.dataset.artCd)) * 100}%`;
+    });
     // 임무 탭 알림 점
     const dot = $('#tabs [data-tab="quest"] .dot');
     if (dot) dot.hidden = !questBadge(state);
@@ -1241,6 +1256,7 @@ export class UI {
         <tr><td>무기 (검·활·지팡이 각 1/3)</td><td>${fmtPct(GACHA_SLOT.weapon, 1)} (각 ${fmtPct(GACHA_SLOT.weapon / 3, 2)})</td></tr>
         <tr><td>투구 / 갑옷 / 목걸이 / 반지</td><td>각 ${fmtPct(GACHA_SLOT.helmet, 1)}</td></tr>
       </table>
+      <p class="small muted">비기서(가문 비기): ${ART_IDS.map((id) => `${ARTS[id].name} ${fmtPct(ART_ODDS[id], 0)}`).join(' · ')}</p>
       <p class="small muted">소환 레벨: 누적 뽑기 수에 따라 레벨이 오르고, 레벨마다 정해진 등급 장비와 보석을 받아요 (확률 없음, 부위만 위 부위 확률). ${SUMMON_LEVELS.slice(1).map((l, i) => `Lv.${i + 2}(${l.draws}회) ${RARITIES[l.rarity].name}×${l.count}+보석 ${l.gems}`).join(' · ')}</p>
       <p class="small muted">뽑기로 나오는 장비는 모두 ★1. 영웅 이상이 ${PITY}번 연속으로 안 나오면 ${PITY}번째는 영웅 확정. 희귀도와 부위는 서로 독립이에요. 예) 전설 활 = ${fmtPct(GACHA_RARITY.legend, 1)} × ${fmtPct(GACHA_SLOT.weapon / 3, 2)} = ${((GACHA_RARITY.legend * GACHA_SLOT.weapon) / 3 * 100).toFixed(3)}%</p>
       <b>돌연변이 특성 확률</b>
